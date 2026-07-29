@@ -1,0 +1,94 @@
+{
+  "project": "project-name",
+  "harness_root": "docs/project-harness",
+  "generated_at": "YYYY-MM-DDTHH:MM:SSZ",
+  "current_status": "Brief human-readable project summary derived from progress.md",
+  "current_item": {
+    "id": "mvp-003",
+    "title": "Implement node handlers",
+    "status": "doing",
+    "owner": "codex",
+    "selected_in_session": "codex-2026-05-08-node-handlers",
+    "updated_at": "YYYY-MM-DD",
+    "workflow": {
+      "status": "running",
+      "updated_at": "YYYY-MM-DD"
+    },
+    "lease": {
+      "owner": "codex",
+      "session": "codex-2026-05-08-node-handlers",
+      "acquired_at": "YYYY-MM-DDTHH:MM:SSZ",
+      "expires_at": "YYYY-MM-DDTHH:MM:SSZ",
+      "ttl_minutes": 120
+    },
+    "active_lease": {
+      "owner": "codex",
+      "session": "codex-2026-05-08-node-handlers",
+      "acquired_at": "YYYY-MM-DDTHH:MM:SSZ",
+      "expires_at": "YYYY-MM-DDTHH:MM:SSZ",
+      "ttl_minutes": 120
+    },
+    "artifacts": {
+      "plan": "docs/project-harness/tasks/mvp-003/plan.md"
+    },
+    "review": {
+      "decision": null
+    },
+    "plan_path": "docs/project-harness/tasks/mvp-003/plan.md"
+  },
+  "checklist_summary": {
+    "todo": 5,
+    "doing": 1,
+    "done": 3,
+    "blocked": 0
+  },
+  "workflow_summary": {
+    "running": 1
+  },
+  "paths": {
+    "scope": "docs/project-harness/scope.md",
+    "architecture": "docs/project-harness/architecture.md",
+    "domain_model": "docs/project-harness/domain-model.md",
+    "checklist": "docs/project-harness/mvp-checklist.json",
+    "progress": "docs/project-harness/progress.md",
+    "runbook": "docs/project-harness/runbook.md",
+    "config": "docs/project-harness/harness-config.json",
+    "events": "docs/project-harness/events.jsonl",
+    "current_task_plan": "docs/project-harness/current/task_plan.md"
+  },
+  "commands": {
+    "state": "scripts/harness/harnessctl state",
+    "session_init": "scripts/harness/harnessctl session-init",
+    "validate_checklist": "python3 scripts/harness/validate_checklist.py docs/project-harness/mvp-checklist.json",
+    "typecheck": "python -m mypy src",
+    "test": "python -m pytest"
+  },
+  "runtime": {
+    "session_init_commands": [
+      "typecheck",
+      "test"
+    ],
+    "lease_ttl_minutes": 120
+  },
+  "git": {
+    "base_branch": "main",
+    "branch_namespace": "agent/{owner}/{item_id}"
+  },
+  "message_bus": {
+    "event_log": "docs/project-harness/events.jsonl",
+    "visible_bus": "discord-or-kook"
+  },
+  "open_risks": [
+    "List durable risks or known verification gaps here."
+  ],
+  "recent_events": [
+    {
+      "id": "evt-YYYYMMDDTHHMMSSZ-00000000",
+      "type": "ASSIGN",
+      "task": "mvp-003",
+      "actor": "operator",
+      "target": "codex",
+      "status": "assigned"
+    }
+  ]
+}

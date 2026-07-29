@@ -1,0 +1,22 @@
+{
+  "commands": {
+    "typecheck": null,
+    "test": null,
+    "build": null
+  },
+  "runtime": {
+    "session_init_commands": [
+      "typecheck",
+      "test"
+    ],
+    "lease_ttl_minutes": 120
+  },
+  "git": {
+    "base_branch": "main",
+    "branch_namespace": "agent/{owner}/{item_id}"
+  },
+  "message_bus": {
+    "event_log": "{{HARNESS_ROOT}}/events.jsonl",
+    "visible_bus": "discord-or-kook"
+  }
+}

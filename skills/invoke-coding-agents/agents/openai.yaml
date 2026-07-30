@@ -1,0 +1,4 @@
+interface:
+  display_name: "调用 Coding Agents"
+  short_description: "启动、监督并恢复本机外部 coding agent CLI"
+  default_prompt: "使用 $invoke-coding-agents 启动并监督一个边界明确的外部 coding agent 任务。"

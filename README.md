@@ -8,16 +8,20 @@
 
 ### `long-running-project-harness` — 长期项目协作协议
 
-让项目能被跨 session、跨 agent 恢复、审阅、实现、验证和交接。把对话上下文当临时内存，把项目文件当长期记忆。
+当用户正在启动或继续一个需要跨 session、跨 agent 保持方向感的长期工程项目时使用这个 skill。它首先是一个项目级协作协议：让项目可以被恢复、审阅、实现、验证和交接；在需要时，也可以为实例仓库补上一层很薄的 runtime harness，让 session 开头变得确定、让状态可以被机器读取。
+
+核心原则很简单：**对话上下文是临时内存，项目文件是长期记忆**。重要决策、已接受范围、明确不做的范围、实现进展和验证结果，都应该落到仓库里的项目文件中，而不是只留在某个还活着的 session 里。
 
 核心能力：
 
-- **项目记忆**：`scope.md`、`architecture.md`、`domain-model.md`、`runbook.md` 等稳定规范，加上 `mvp-checklist.json` 机器可读状态。
-- **任务追踪**：每个任务有 `tasks/<item-id>/plan.md` canonical plan 和 task-scoped evidence，不会被覆盖。
-- **多 agent 协作协议**：operator / worker / reviewer 显式分工，handoff / review / blocker / closeout packet 让交接可定位、可审计。
-- **薄运行层**：`harnessctl` 命令、checklist 校验、状态派生、packet 生成、本地 owner/lease 护栏。
+- **项目记忆**：`scope.md`（长期目标 + non-goals）、`architecture.md`、`domain-model.md`、`runbook.md` 等稳定规范，加上 `mvp-checklist.json` 的机器可读任务状态。
+- **任务追踪**：每个任务有 `tasks/<item-id>/plan.md` canonical plan 和 task-scoped evidence（bootstrap、review、handoff、verdict、receipt），不会被后续任务覆盖。
+- **多 agent 协作协议**：operator / worker / reviewer 显式分工，handoff / review / blocker / closeout packet 让交接可定位、可审计；`events.jsonl` 追加记录关键事件。
+- **薄运行层**：`harnessctl` 命令、checklist 校验、状态派生、packet 生成、本地 owner/lease 护栏、确定性 session init——减少人工搬运，但不取代你的判断。
 
-它是协议优先：先保证文件语义正确，再用薄脚本减少机械工作。它不是自动代理框架，不替你做产品决策。
+这个 skill 借鉴的是"持久化文件、checklist、progress log、git checkpoint、deterministic session init"这类通用 harness 方法，而不是任何外部框架的代码、prompt、文件结构或命名约定。
+
+它是**协议优先**：先保证文件语义正确，再用薄脚本减少机械工作。它不是自动代理框架，不替你做产品决策；真正的自动协调、跨主机运行状态和可靠消息投递放到独立的 runtime 层（见下文「两个 skill 的关系」中列出的 runtime 实现选项）。
 
 ### `invoke-coding-agents` — agent 调用与监督方法
 

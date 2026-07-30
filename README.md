@@ -1,6 +1,6 @@
 # Long-Running Project Harness
 
-这是一个面向长期工程项目的 Codex/Claude skill，目标是提供持久项目记忆、多 session 恢复和显式多 agent handoff。
+这是一个面向长期工程项目的 Codex/Claude code等agent的 skill，目标是提供持久项目记忆、多 session 恢复和显式多 agent handoff。
 
 本仓库定位为 file-backed protocol runtime。它不是 coordinator、消息总线、remote runner，也不是 GitHub 自动化服务。
 

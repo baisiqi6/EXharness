@@ -31,12 +31,19 @@
 
 ## 两个 skill 的关系
 
-它们**互相独立，各满足不同需求**：
+它们**互相独立，各满足不同需求**，不是依赖关系：
 
-- 经常有这种情况：用户跟自己的 agent 说"你去调用某某 agent 做某件事"——这时只需要 `invoke-coding-agents`，不需要整个项目 harness 协议。
-- 反过来，做长期项目多 agent 协作时，一般会需要 `invoke-coding-agents`——因为 harness 协议规定了 operator/worker/reviewer 怎么分工交接，但 worker/reviewer 进程要靠 `invoke-coding-agents` 实际拉起来、监督和验收。
+- `invoke-coding-agents` 满足独立需求："调某个 agent 干件事"——不需要项目 harness 协议。
+- `long-running-project-harness` 维护的是**协议**（谁负责什么、任务怎么流转、状态怎么落盘、交接怎么留痕），**不规定 runtime 面怎么推进任务**。推进任务时用哪种 runtime 实现，由用户根据场景自选。
 
-所以两者是**软依赖**：harness 引用 invoke-coding-agents 作为"怎么调起 agent"的方法，但不强制、不内联。各自独立安装、独立使用。
+`long-running-project-harness` 常见的 runtime 实现从轻到重：
+
+- **当前 agent 自身的 subagent**（最轻量）：如果任务只用当前这一种 agent 就能完成、不跨 agent 生态，直接用 agent 自带的 subagent 能力推进，不需要任何外部 skill 或服务。harness 只负责把状态和交接记录落盘。
+- **`invoke-coding-agents` skill**：当任务需要调用当前 agent 之外的 coding agent（Claude Code / Qoder / OMP / Codex 等），用它把外部 agent 拉起来、监督和验收。
+- **多 agent 编排 workflow 引擎**：用声明式 workflow 编排多个 agent_call 节点，把多 agent 协作变成可审计、可恢复的 workflow（如 Composia 这类项目）。
+- **Coordinate + MultiNexus runtime 层**（最重）：需要跨宿主机、可靠消息投递、remote runner 调度时，由这两层起一个完整的 runtime 层。
+
+**关键**：harness 不绑定任何一种 runtime 实现。可以只用最轻的 subagent，也可以组合多种。各自独立安装、独立使用。
 
 ## 快速开始
 
@@ -77,9 +84,9 @@ docs/project-harness/
 
 `long-running-project-harness` **可以直接给 agent 在项目里实例化**，不依赖任何外部服务就能用——纯文件协议 + 薄脚本。
 
-当你需要更重的能力——SQLite 事件存储、可靠消息投递、remote runner 调度、跨宿主机多 agent 协同的 runtime 运行时管理、GitHub PR/CI 集成——那些由独立的 **Coordinate**（确定性协调内核）和 **MultiNexus**（agent 执行织物）两层实例化项目负责。这两层调用密集、几乎不分家，共同提供跨主机、可靠的多 agent runtime。
+上一节列出的最重一档 runtime 实现，由独立的 **Coordinate**（确定性协调内核）和 **MultiNexus**（agent 执行织物）两层提供。这两层调用密集、几乎不分家，共同提供跨宿主机、可靠的多 agent runtime（SQLite 事件存储、可靠消息投递、remote runner 调度、GitHub PR/CI 集成等）。
 
-skill 与这两层通过协议组合，不共享内部代码或数据库：skill 维护稳定的文件协议，重档运行时消费这个协议。中小项目只用 skill 就够；大型、跨主机、需要可靠恢复的项目再加 Coordinate + MultiNexus。
+关键解耦原则：skill 与这两层**通过协议组合，不共享内部代码或数据库**——skill 维护稳定的文件协议，重档 runtime 消费这个协议。中小项目只用 skill（配合 subagent 或 invoke-coding-agents）就够；大型、跨主机、需要可靠恢复的项目再加 Coordinate + MultiNexus。
 
 ## Runtime Engineering
 

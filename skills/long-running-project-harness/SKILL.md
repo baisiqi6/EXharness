@@ -207,6 +207,17 @@ writer 时使用 path-scoped commit 即可；多个项目同时写入时，为�
 
 如果项目需要这些能力，使用 Coordinate-managed 部署形态；不要把职责塞进 skill 脚本。
 
+## 协议与 runtime 实现
+
+本 skill 维护的是**协议**：谁负责什么、任务怎么流转、状态怎么落盘、交接怎么留痕。协议本身不规定 runtime 面怎么推进任务——那是 agent 执行层的事，由用户根据场景自选。常见的 runtime 实现从轻到重：
+
+- **当前 agent 自身的 subagent**（最轻量）：很多 agent client 自带 subagent/agent team 能力。如果任务只用当前这一种 agent 就能完成、不需要跨 agent 生态，直接用 agent 自身的 subagent 推进即可，不需要任何外部 skill 或服务。本 harness 只负责把项目状态、任务分工和交接记录落盘。
+- **`invoke-coding-agents` skill**（结合其他 agent 的强项）：当任务需要调用当前 agent 之外的 coding agent（Claude Code / Qoder / OMP / Codex 等），用它把外部 agent 进程拉起来、监督和验收。它和本 skill 是平级的独立 skill，只在需要跨 agent 协作时配合使用。
+- **多 agent 编排 workflow 引擎**：用声明式 workflow 编排多个 agent_call 节点（如 Composia 这类项目，把多 agent 协作变成可审计、可恢复的 workflow）。
+- **Coordinate + MultiNexus runtime 层**（最重）：需要 SQLite 事件存储、跨宿主机、可靠消息投递、remote runner 调度时，由这两层起一个完整的 runtime 层负责。
+
+**关键**：本 skill 不绑定任何一种 runtime 实现。用户可以只用最轻的 subagent，也可以组合多种。选择依据是任务复杂度、是否跨 agent 生态、是否跨主机——而不是本 skill 的要求。本 skill 的职责始终只是：让协议事实落盘、可恢复、可审计。
+
 ## Mirror Rule
 
 - global skill 维护可泛化的项目协议和边界。

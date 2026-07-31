@@ -41,6 +41,10 @@ Coordinate-managed 项目可以采用 split storage：产品 repo 保存稳定�
 消费的最小兼容状态；私有 task artifact repo 保存 task-scoped 过程材料（bootstrap、review、handoff、
 verdict、receipt、archive index）。
 
+Coordinate-managed 不等于必须安装 MultiNexus：当前 agent、Operator 或已有 runner 能可靠执行和
+报告 job 时，只使用 Coordinate。只有需要托管 vendor CLI/session 或跨主机执行时才增加 MultiNexus
+`agentd/adapters`；只有需要 Discord/KOOK 可见协作时才启用 bridge。
+
 **区分 policy 与 capability（不要混淆）**：
 - **本项目 operator policy**：active canonical plan 留在产品 workspace；私有 repo 只存过程材料，
   Coordinate runtime 不感知它（归档是 skill/operator 层文件操作）。
@@ -214,7 +218,11 @@ writer 时使用 path-scoped commit 即可；多个项目同时写入时，为�
 - **当前 agent 自身的 subagent**（最轻量）：很多 agent client 自带 subagent/agent team 能力。如果任务只用当前这一种 agent 就能完成、不需要跨 agent 生态，直接用 agent 自身的 subagent 推进即可，不需要任何外部 skill 或服务。本 harness 只负责把项目状态、任务分工和交接记录落盘。
 - **`invoke-coding-agents` skill**（结合其他 agent 的强项）：当任务需要调用当前 agent 之外的 coding agent（Claude Code / Qoder / OMP / Codex 等），用它把外部 agent 进程拉起来、监督和验收。它和本 skill 是平级的独立 skill，只在需要跨 agent 协作时配合使用。
 - **多 agent 编排 workflow 引擎**：用声明式 workflow 编排多个 agent_call 节点（如 Composia 这类项目，把多 agent 协作变成可审计、可恢复的 workflow）。
-- **Coordinate + MultiNexus runtime 层**（最重）：需要 SQLite 事件存储、跨宿主机、可靠消息投递、remote runner 调度时，由这两层起一个完整的 runtime 层负责。
+- **Coordinate 控制面**：需要 durable job、event、lease、receipt 和恢复，但任务由当前 agent、
+  Operator 或已有 runner 主动执行时使用。
+- **Coordinate + MultiNexus executor 层**：需要自动调用 vendor agent CLI、恢复 provider session
+  或跨宿主机执行时，增加 `agentd/adapters`；不要求启用消息平台。
+- **完整 MultiNexus bridge**（最重）：只有需要 Discord/KOOK、多 Bot 和可见协作时才启用。
 
 **关键**：本 skill 不绑定任何一种 runtime 实现。用户可以只用最轻的 subagent，也可以组合多种。选择依据是任务复杂度、是否跨 agent 生态、是否跨主机——而不是本 skill 的要求。本 skill 的职责始终只是：让协议事实落盘、可恢复、可审计。
 

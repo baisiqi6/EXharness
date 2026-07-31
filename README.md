@@ -45,9 +45,28 @@
 - **当前 agent 自身的 subagent**（最轻量）：如果任务只用当前这一种 agent 就能完成、不跨 agent 生态，直接用 agent 自带的 subagent 能力推进，不需要任何外部 skill 或服务。harness 只负责把状态和交接记录落盘。
 - **`invoke-coding-agents` skill**：当任务需要调用当前 agent 之外的 coding agent（Claude Code / Qoder / OMP / Codex 等），用它把外部 agent 拉起来、监督和验收。
 - **多 agent 编排 workflow 引擎**：用声明式 workflow 编排多个 agent_call 节点，把多 agent 协作变成可审计、可恢复的 workflow（如 Composia 这类项目）。
-- **Coordinate + MultiNexus runtime 层**（最重）：需要跨宿主机、可靠消息投递、remote runner 调度时，由这两层起一个完整的 runtime 层。
+- **Coordinate 控制面**：需要 durable job、事件、lease、审查记录和恢复，但由当前 agent、Operator
+  或已有 runner 主动执行任务时使用。
+- **Coordinate + MultiNexus executor 层**：需要自动调用 vendor agent CLI、恢复 provider session
+  或跨宿主机执行时，增加 MultiNexus 的 `agentd + adapters`；不要求启用 Discord/KOOK。
+- **完整协作层**（最重）：需要 Discord/KOOK、多 Bot 和可见的多 agent 协作时，再启用
+  MultiNexus bridge。
 
 **关键**：harness 不绑定任何一种 runtime 实现。可以只用最轻的 subagent，也可以组合多种。各自独立安装、独立使用。
+
+## 如何选择最小组合
+
+| 需求 | 最小组合 |
+|---|---|
+| 当前 agent 直接开发，只需要持久计划、SDD/TDD、审查和测试纪律 | `long-running-project-harness` |
+| 需要 durable job、任务状态、事件、审查记录和可恢复流程 | EXharness + Coordinate |
+| 需要系统自动调用 agent CLI、恢复 provider session 或跨宿主机执行 | EXharness + Coordinate + MultiNexus `agentd/adapters` |
+| 需要 Discord/KOOK、多 Bot 和多 agent 可见协作 | 三者完整部署 |
+
+选择原则是“只安装解决当前问题的最小层级”。Coordinate 提供确定性控制面，但不会因为安装完成就
+自动获得 Claude Code、Qoder、Grok 等 vendor runtime 的原生 session 控制；这部分由当前 agent、
+已有 runner，或 MultiNexus executor 层承担。MultiNexus 也不等于 Discord：bridge 是可选 transport，
+`agentd/adapters` 才是托管执行层。
 
 ## 快速开始
 
@@ -88,9 +107,15 @@ docs/project-harness/
 
 `long-running-project-harness` **可以直接给 agent 在项目里实例化**，不依赖任何外部服务就能用——纯文件协议 + 薄脚本。
 
-上一节列出的最重一档 runtime 实现，由独立的 **Coordinate**（确定性协调内核）和 **MultiNexus**（agent 执行织物）两层提供。这两层调用密集、几乎不分家，共同提供跨宿主机、可靠的多 agent runtime（SQLite 事件存储、可靠消息投递、remote runner 调度、GitHub PR/CI 集成等）。
+上一节列出的 managed runtime 由独立的 **Coordinate**（确定性协调内核）和
+**MultiNexus**（agent 执行织物）组合提供。两者可以一起形成跨宿主机、可靠的多 agent runtime；
+也可以只使用 Coordinate 管理 durable state，由用户现有 agent/runner 负责执行；或只启用
+MultiNexus 的 executor 层而不启用 Discord/KOOK bridge。
 
-关键解耦原则：skill 与这两层**通过协议组合，不共享内部代码或数据库**——skill 维护稳定的文件协议，重档 runtime 消费这个协议。中小项目只用 skill（配合 subagent 或 invoke-coding-agents）就够；大型、跨主机、需要可靠恢复的项目再加 Coordinate + MultiNexus。
+关键解耦原则：skill 与这两层**通过协议组合，不共享内部代码或数据库**——skill 维护稳定的文件
+协议，managed runtime 消费这个协议。中小项目只用 skill（配合 subagent 或
+invoke-coding-agents）就够；只有出现 durable control-plane、托管 executor、跨主机或可见消息总线
+需求时，才逐层增加 Coordinate 和 MultiNexus。
 
 ## Runtime Engineering
 

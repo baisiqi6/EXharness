@@ -9,12 +9,14 @@ opencode auth list
 opencode run --help
 ```
 
-OpenCode 可能存在多个 binary；行为不一致时先运行 `which -a opencode`，必要时固定绝对路径。
+OpenCode 可能存在多个 binary；行为不一致时先运行 `which -a opencode`，必要时通过
+`OPENCODE_BIN` 固定当前主机上的绝对路径。
 
 ## One-shot worker/reviewer
 
 ```bash
-/Users/Admin/.opencode/bin/opencode run \
+OPENCODE_BIN="${OPENCODE_BIN:-$(command -v opencode)}"
+"$OPENCODE_BIN" run \
   --dir /absolute/worktree \
   --model '<provider/model>' \
   --variant high \
@@ -37,7 +39,8 @@ opencode session list
 恢复指定 session：
 
 ```bash
-/Users/Admin/.opencode/bin/opencode run \
+OPENCODE_BIN="${OPENCODE_BIN:-$(command -v opencode)}"
+"$OPENCODE_BIN" run \
   --session '<session-id>' \
   --dir /absolute/worktree \
   --format json \

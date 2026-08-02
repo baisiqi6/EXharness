@@ -2,12 +2,13 @@
 
 ## 实时核验
 
-优先使用绝对 binary，避免非交互 shell 找不到 `qoder` alias：
+先实时发现 binary；需要固定特定安装时，通过 `QODER_BIN` 传入当前主机上的绝对路径，
+避免把某台机器的用户目录写进协议：
 
 ```bash
-command -v qodercli
-/Users/Admin/.local/bin/qodercli --version
-/Users/Admin/.local/bin/qodercli --list-models
+QODER_BIN="${QODER_BIN:-$(command -v qodercli)}"
+"$QODER_BIN" --version
+"$QODER_BIN" --list-models
 ```
 
 model 名必须使用 `--list-models` 的当前精确值，例如 `Qwen3.8-Max-Preview`，不要写成自然语言别名。
@@ -18,7 +19,8 @@ model 名必须使用 `--list-models` 的当前精确值，例如 `Qwen3.8-Max-P
 
 ```bash
 sid=$(uuidgen | tr '[:upper:]' '[:lower:]')
-/Users/Admin/.local/bin/qodercli \
+QODER_BIN="${QODER_BIN:-$(command -v qodercli)}"
+"$QODER_BIN" \
   -p \
   --model Qwen3.8-Max-Preview \
   --reasoning-effort high \
@@ -39,7 +41,8 @@ sid=$(uuidgen | tr '[:upper:]' '[:lower:]')
 不需要 Bash 时使用更严格的调用：
 
 ```bash
-/Users/Admin/.local/bin/qodercli \
+QODER_BIN="${QODER_BIN:-$(command -v qodercli)}"
+"$QODER_BIN" \
   -p \
   --model Qwen3.8-Max-Preview \
   --permission-mode dont_ask \
@@ -76,7 +79,8 @@ find "$HOME/.qoder/projects" -name "$sid.jsonl" -print
 ## 恢复
 
 ```bash
-/Users/Admin/.local/bin/qodercli \
+QODER_BIN="${QODER_BIN:-$(command -v qodercli)}"
+"$QODER_BIN" \
   -p \
   --resume "$sid" \
   --cwd /absolute/project \

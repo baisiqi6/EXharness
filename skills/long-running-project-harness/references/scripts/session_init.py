@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 
 from build_harness_state import build_state, write_state
-from harness_common import load_config, project_root
+from harness_common import load_config, project_root, rel, resolve_checklist
 
 
 def run_step(label: str, command: str | list[str], cwd: Path) -> int:
@@ -102,9 +102,10 @@ def main() -> int:
     config = load_config()
 
     if not args.skip_checklist:
+        resolved = resolve_checklist(purpose="read")
         checklist_command = (
             f"{sys.executable} {{SCRIPTS_DIR}}/validate_checklist.py "
-            "{{HARNESS_ROOT}}/mvp-checklist.json"
+            f"{rel(resolved.path)}"
         )
         if run_step("Checklist Validation", checklist_command, root) != 0:
             failures.append("checklist validation failed")

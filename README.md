@@ -14,7 +14,7 @@
 
 核心能力：
 
-- **项目记忆**：`scope.md`（长期目标 + non-goals）、`architecture.md`、`domain-model.md`、`runbook.md` 等稳定规范，加上 `mvp-checklist.json` 的机器可读任务状态。
+- **项目记忆**：`scope.md`（长期目标 + non-goals）、`architecture.md`、`domain-model.md`、`runbook.md` 等稳定规范，加上 `harness-checklist.json` 的机器可读任务状态（legacy 名 `mvp-checklist.json` 继续兼容）。
 - **任务追踪**：每个任务有 `tasks/<item-id>/plan.md` canonical plan 和 task-scoped evidence（bootstrap、review、handoff、verdict、receipt），不会被后续任务覆盖。
 - **多 agent 协作协议**：operator / worker / reviewer 显式分工，handoff / review / blocker / closeout packet 让交接可定位、可审计；`events.jsonl` 追加记录关键事件。
 - **薄运行层**：`harnessctl` 命令、checklist 校验、状态派生、packet 生成、本地 owner/lease 护栏、确定性 session init——减少人工搬运，但不取代你的判断。
@@ -93,7 +93,7 @@ docs/project-harness/
   scope.md              # 长期目标 + 不做的事
   architecture.md       # 架构边界
   domain-model.md       # 关键决策
-  mvp-checklist.json    # 机器可读任务状态(todo/doing/done/blocked)
+  harness-checklist.json  # 机器可读任务状态(todo/doing/done/blocked)；legacy 名 mvp-checklist.json 兼容
   progress.md           # 人类可读进展
   runbook.md            # 操作手册
   events.jsonl          # append-only 关键事件日志
@@ -135,11 +135,26 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s references/tests -p 't
 bash -n references/scripts/harnessctl
 ```
 
-`validate-checklist.py` 可跨项目直接引用，校验 `mvp-checklist.json` 的结构和语义：
+`validate-checklist.py` 可跨项目直接引用，校验 checklist（`harness-checklist.json` 或 legacy
+`mvp-checklist.json`）的结构和语义；顶层脚本是 thin wrapper，唯一 semantic implementation 在
+`references/scripts/validate_checklist.py`：
 
 ```bash
-python3 skills/long-running-project-harness/scripts/validate-checklist.py path/to/mvp-checklist.json
+python3 skills/long-running-project-harness/scripts/validate-checklist.py path/to/checklist.json
 ```
+
+实例化后的 `harnessctl` 提供受控 checklist mutation（不手改 JSON）：
+
+```bash
+harnessctl add-item <id> --title "..." --acceptance "..." [--priority p1] [--plan PATH] [--dependency ID]...
+harnessctl update-item <id> [--title ...] [--acceptance ...] [--verification ...] [--add-dependency ...]
+harnessctl migrate-checklist   # legacy 名 -> 新名，同目录 rename，不改 bytes
+```
+
+规则：checklist 只有唯一 resolver（new-only / legacy-only 都完整可用；none / both fail closed，doctor
+只诊断 dual authority）；每个 mutation 都 validate-before/after 并 atomic 写入；`coordinate-managed`
+部署下裸 add/update fail closed；Standalone 允许 operator 明确选择的 external absolute plan locator
+（operator 选择，不是 containment 安全保证）。
 
 `references/scripts/` 是生成项目实例 runtime 的**模板**（含 `{{占位符}}`），不是安装器。
 

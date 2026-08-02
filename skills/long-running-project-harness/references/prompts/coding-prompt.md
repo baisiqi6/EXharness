@@ -29,7 +29,7 @@ pwd
 
 这一步会：
 - 刷新 `{{HARNESS_ROOT}}/harness-state.json`
-- 校验 `mvp-checklist.json` 结构和语义
+- 校验当前 checklist（`harness-checklist.json` 或 legacy `mvp-checklist.json`，由 resolver 决定）
 - 运行 typecheck（如果项目有 typecheck 命令）
 - 运行 test（如果项目有 test 命令）
 - 输出当前状态摘要
@@ -101,15 +101,24 @@ cat {{HARNESS_ROOT}}/tasks/<item-id>/plan.md
 
 - 如果已有分配给自己的 `assigned` / `handoff_requested` item，先运行 `{{SCRIPTS_DIR}}/harnessctl accept <item-id> <owner> <session-id>`。
 - 如果已有自己持有的 `doing` item，继续它；长任务接近 lease 过期时运行 `{{SCRIPTS_DIR}}/harnessctl renew-lease <item-id> <owner> <session-id>`。
-- 如果没有，从 `mvp-checklist.json` 中选最高优先级的未阻塞 `todo` item。
+- 如果没有，从当前 checklist 中选最高优先级的未阻塞 `todo` item。
 - 选择标准：`dependencies` 已全部 `done`、priority 最高（p0 > p1 > p2）。
+- 重要节点需要新增或调整字段时，用 `harnessctl` 落盘，不要手改 JSON：
+
+```bash
+{{SCRIPTS_DIR}}/harnessctl add-item <id> --title "..." --acceptance "..." [--priority p1] [--dependency <id>]...
+{{SCRIPTS_DIR}}/harnessctl update-item <id> [--title ...] [--acceptance ...] [--verification ...] [--add-dependency ...]
+```
+
+  `add-item` 只登记 `todo` 节点，不自动 start；`--plan` 指向的文件必须已存在。
+  `coordinate-managed` 部署下裸 add/update 被拒绝，走 Coordinate 入口。
 - **必须调用 harnessctl 落盘**，不能只在脑内决定：
 
 ```bash
 {{SCRIPTS_DIR}}/harnessctl start <item-id> <owner> <session-id>
 ```
 
-这会同步更新 `mvp-checklist.json`、创建 `tasks/<item-id>/plan.md`、刷新 `current/task_plan.md`、写入 `events.jsonl`，并领取当前 session 的 lease。
+这会同步更新当前 checklist、创建 `tasks/<item-id>/plan.md`、刷新 `current/task_plan.md`、写入 `events.jsonl`，并领取当前 session 的 lease。
 
 如果项目有协调 agent，coding agent 优先 accept/decline 已分配任务；只有在没有协调 agent 或明确 legacy 单 agent 模式时，才自行触发 start。
 
@@ -151,7 +160,7 @@ session 结束前，区分两种情况：
 **情况 A：本轮推进但未完成**
 
 1. **更新 `progress.md`**：添加新的 Session Log 段，记录改了什么、验证了什么
-2. **更新 `mvp-checklist.json`**：更新当前 item 的 handoff 和 updated_at，写清楚下一步从哪继续
+2. **更新当前 checklist**：更新当前 item 的 handoff 和 updated_at，写清楚下一步从哪继续
 3. **同步 current pointer**：
 
 ```bash
@@ -161,7 +170,9 @@ session 结束前，区分两种情况：
 4. **校验 checklist**：
 
 ```bash
-python3 {{SCRIPTS_DIR}}/validate_checklist.py {{HARNESS_ROOT}}/mvp-checklist.json
+{{SCRIPTS_DIR}}/harnessctl validate
+# 或显式指定文件：
+python3 {{SCRIPTS_DIR}}/validate_checklist.py {{HARNESS_ROOT}}/harness-checklist.json
 ```
 
 **情况 B：item 已完成，准备进入 done**

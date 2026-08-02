@@ -25,7 +25,7 @@ description: Use this skill when the user explicitly wants a long-running projec
 没有 Coordinate 时使用轻量 file-backed harness。
 
 - `events.jsonl`、lease、packet runtime 只在 high-risk 或显式需要跨 session 自动恢复时启用。
-- 本地 `events.jsonl` 是 append-only event log / outbox candidate，不提供发布确认、重试或跨平台幂等保证，也不替代 `mvp-checklist.json` 的当前状态。
+- 本地 `events.jsonl` 是 append-only event log / outbox candidate，不提供发布确认、重试或跨平台幂等保证，也不替代当前 checklist（`harness-checklist.json` 或 legacy `mvp-checklist.json`）的状态。
 - ordinary 小重构不触发 packet/lease 全仪式。
 
 ### Coordinate-managed
@@ -147,11 +147,11 @@ task-scoped **过程材料**（bootstrap、review、handoff、verdict、receipt 
 任务级状态（当前 slice 的 step-by-step plan、临时 findings、当天 tactical progress）放在该形态对应的
 active plan 位置。产品 repo 与外部 artifact repo 不得同时维护同一份 active plan 正文。
 
-如果两套系统同时存在，不要把同一个事实重复维护两遍。当前任务完成后，把稳定结果摘要写回 harness 的 `progress.md`，并更新 `mvp-checklist.json`；详细执行轨迹留在 task plan。机器可读状态由脚本从长期文件派生，不要手写维护第三份事实。
+如果两套系统同时存在，不要把同一个事实重复维护两遍。当前任务完成后，把稳定结果摘要写回 harness 的 `progress.md`，并更新当前 checklist；详细执行轨迹留在 task plan。机器可读状态由脚本从长期文件派生，不要手写维护第三份事实。
 
 推荐 source of truth 划分：
 
-- `mvp-checklist.json`: coarse status、priority、owner、lease、workflow、acceptance、verification、artifact path、review decision。
+- `harness-checklist.json`（新默认；legacy 名 `mvp-checklist.json` 兼容）: coarse status、priority、owner、lease、workflow、acceptance、verification、artifact path、review decision。
 - `tasks/<item-id>/plan.md`: 单个 item 的 canonical plan。
 - `progress.md`: 人类可读进展、验证摘要、风险、handoff。
 - `events.jsonl`: Standalone 的关键动作日志；Coordinate-managed 中只作 fallback/export。
@@ -195,7 +195,7 @@ writer 时使用 path-scoped commit 即可；多个项目同时写入时，为�
 
 默认先建立**协议层**，只有当用户明确需要减少人工切会话、减少人工复制、或让新 session 自动恢复上下文时，再补**运行层**。协议层在 ordinary 模式下可以只保留最小 spec/plan；high-risk 模式建议完整保留。
 
-- 协议层：`scope.md`、`architecture.md`、`domain-model.md`、`mvp-checklist.json`、
+- 协议层：`scope.md`、`architecture.md`、`domain-model.md`、`harness-checklist.json`（legacy `mvp-checklist.json` 兼容）、
   `progress.md`、`runbook.md`、`tasks/<item-id>/plan.md`，以及 profile 对应的事件索引
 - 运行层：`harness-config.json`、`harness-state.json`、`session-init` 命令、packet 生成命令、owner/lease 保护命令、必要时的 `init.sh`
 
@@ -247,7 +247,7 @@ docs/project-harness/
   scope.md
   architecture.md
   domain-model.md
-  mvp-checklist.json
+  harness-checklist.json
   progress.md
   runbook.md
   harness-config.json
@@ -302,7 +302,7 @@ split layout 中不要机械复制上述整棵目录：repo-local 只留稳定�
 scripts/harness/harnessctl session-init
 ```
 
-它推荐至少做：确认当前工作目录和 harness root；刷新 `harness-state.json`；读取 `mvp-checklist.json`、`progress.md`、`current/task_plan.md` 的最小摘要；执行 checklist 校验；运行 `harness-config.json` 中配置的最小回归检查；如果发现环境已坏，优先暴露这个事实，而不是直接开始新功能。
+它推荐至少做：确认当前工作目录和 harness root；刷新 `harness-state.json`；读取当前 checklist、`progress.md`、`current/task_plan.md` 的最小摘要；执行 checklist 校验；运行 `harness-config.json` 中配置的最小回归检查；如果发现环境已坏，优先暴露这个事实，而不是直接开始新功能。
 
 注意：这是 runtime harness，不是 orchestration system；作用是让新 session 有确定性开头，不是自动替用户做所有决策。脚本可以提供本地 lease 护栏，但跨主机的全局互斥仍应由 coordinator 或 Git/GitHub workflow 执行。
 
@@ -314,12 +314,12 @@ scripts/harness/harnessctl session-init
 
 实例化步骤：确定 harness root 位置；确定脚本放置深度；复制模板文件；替换占位符；复制 `harness-config-template.json` 并填入项目实际值；运行 `validate_checklist.py` 确认 harness 健康。
 
-可用模板：`harnessctl`、`harness_common.py`、`build_harness_state.py`、`session_init.py`、`activate_item.py`、`workflow_transition.py`、`sync_current_from_item.py`、`prepare_handoff_packet.py`、`prepare_review_packet.py`、`prepare_blocker_packet.py`、`prepare_closeout_packet.py`、`validate_checklist.py`。
+可用模板：`harnessctl`、`harness_common.py`、`build_harness_state.py`、`session_init.py`、`activate_item.py`、`workflow_transition.py`、`sync_current_from_item.py`、`checklist_items.py`、`prepare_handoff_packet.py`、`prepare_review_packet.py`、`prepare_blocker_packet.py`、`prepare_closeout_packet.py`、`validate_checklist.py`。
 
 `validate_checklist.py` 完全通用，同时存在于 skill 目录 `scripts/validate-checklist.py` 与模板目录 `references/scripts/validate_checklist.py`。
 
 ```bash
-python3 "$CLAUDE_SKILL_DIR/scripts/validate-checklist.py" path/to/mvp-checklist.json
+python3 "$CLAUDE_SKILL_DIR/scripts/validate-checklist.py" path/to/checklist.json
 ```
 
 ## Coding Agent Session Protocol
@@ -332,7 +332,7 @@ python3 "$CLAUDE_SKILL_DIR/scripts/validate-checklist.py" path/to/mvp-checklist.
 - **跑层**：包含在 session-init 中（typecheck + test）
 - **写层**（Step 7-12）：选 item → 确认 plan → 实现 → 验证 → 持久化 → 汇报
 
-核心原则：session-init 失败时，先修 bug，再实现新功能；canonical plan 有“待补充”占位符时，先补全再编码；session 结束前必须更新 progress.md + mvp-checklist.json + sync + validate。
+核心原则：session-init 失败时，先修 bug，再实现新功能；canonical plan 有“待补充”占位符时，先补全再编码；session 结束前必须更新 progress.md + 当前 checklist + sync + validate。
 
 ## Multi-Agent Role Protocol
 
@@ -403,7 +403,7 @@ Packet 状态机：
 
 ### Resume
 
-已有 harness，或用户要求继续之前的工作时使用：读取 `progress.md`、`mvp-checklist.json` 和相关 plan/architecture 文件；检查 `git status`，不要覆盖他人修改；判断是否已有 item 处于 `doing`；如果另一个 owner/session 的 lease 仍 active，选择不冲突的 item 或等待 operator/human，不要静默接手；找到用户指定的 slice 或最高优先级的未阻塞 item；实现前先通过脚本标记选中的 item 并领取 lease；实现最小可用切片；结束前更新 progress 和 checklist。
+已有 harness，或用户要求继续之前的工作时使用：读取 `progress.md`、当前 checklist 和相关 plan/architecture 文件；检查 `git status`，不要覆盖他人修改；判断是否已有 item 处于 `doing`；如果另一个 owner/session 的 lease 仍 active，选择不冲突的 item 或等待 operator/human，不要静默接手；找到用户指定的 slice 或最高优先级的未阻塞 item；实现前先通过脚本标记选中的 item 并领取 lease；实现最小可用切片；结束前更新 progress 和 checklist。
 
 ## Clean-Room 协议
 
@@ -419,11 +419,28 @@ Packet 状态机：
 
 使用 JSON 维护 checklist，因为它容易 diff，也容易被 agent 稳定更新。
 
+**文件名权威规则**：新项目使用 `harness-checklist.json`；`mvp-checklist.json` 是 legacy 文件名，
+继续完整可用。runtime 只有唯一 resolver 决定当前 checklist：只有新名/只有旧名都正常读写；
+两者都没有或同时存在时 read/mutation fail closed（doctor 只诊断 dual authority，不宣布哪份
+active）。从旧名切换到新名运行 `harnessctl migrate-checklist`（同目录 rename，不改 bytes，不提交 Git）。
+
+**重要节点登记规则**：operator 需要新增或调整重要节点时，用 `harnessctl` 落盘，不要手改 JSON：
+
+- `harnessctl add-item <id> --title <text> --acceptance <text> [--priority p0|p1|p2] [--plan <path>] [--dependency <id>]... [--handoff <text>]`：只创建 `todo` 节点，不创建 plan 文件、不自动 start、不写 lease/review/workflow 占位对象。`--plan` 文件必须已存在。
+- `harnessctl update-item <id> [--title] [--acceptance] [--priority] [--plan] [--verification] [--handoff] [--add-dependency] [--remove-dependency]`：不能改 `status`/`owner`/`selected_in_session`/`lease`/`workflow.status`/`review.decision`；未触碰字段与未知兼容字段原样保留。
+- 每个 mutation 都先校验 current、内存变更、再校验 candidate、atomic 写入；commit 前失败原 bytes 不变。
+- `deployment_profile=coordinate-managed` 下裸 add/update fail closed（走 Coordinate 入口）；`migrate-checklist` 需要显式 `--ack-managed-profile`（只是防误操作确认，不是 authority token）。
+
 每个 item 至少包含：`id`、`title`、`status`（todo/doing/done/blocked）、`priority`（p0/p1/p2）、`owner`、`selected_in_session`、`updated_at`、`dependencies`、`blocked_by`、`blocked_reason`、`acceptance`、`verification`、`handoff`。
 
 多 agent 兼容扩展字段（推荐）：`workflow`（assigned/running/closeout_requested/changes_requested/closed）、`lease`（acquired_at/expires_at/ttl_minutes）、`artifacts`（plan/handoff_packet/review_packet/closeout_packet/branch/pr）、`review`（decision 取 approved/changes_requested/blocked/null）。
 
 Branch 字段协议：`workflow.branch` 是工作分支，通常由 `git.branch_namespace` 生成；`artifacts.branch` 与其保持一致；`artifacts.pr` 是 PR 链接；远程 agent 不得改非自己 namespace 下的 branch，除非 human 明确授权。
+
+Canonical plan locator：一个 item 只有一个语义答案（`plan_path` 或 `artifacts.plan` 之一，或两者标准化后相同）；冲突时 fail closed，不静默选择。没有 locator 时 activation 可以 scaffold 默认
+`tasks/<id>/plan.md`；已有 locator 但文件缺失时 fail closed，不偷偷重建。Standalone 允许 operator
+在 checklist 中明确选择 external absolute plan locator（repo-local 协议 + 外部 task artifact root 的
+split layout）；这是 operator 选择，只做 lexical/regular-file 校验，不构成 containment 安全保证。
 
 除非验证结果已经记录在 `progress.md`，否则不要把 item 标成 `done`。
 除非用户明确要求 override，否则不要启动 dependencies 未完成的 item。
@@ -434,13 +451,18 @@ Branch 字段协议：`workflow.branch` 是工作分支，通常由 `git.branch_
 
 ## Checklist 校验
 
-创建或修改 `mvp-checklist.json` 后，优先运行校验脚本：
+创建或修改 checklist（`harness-checklist.json` 或 legacy `mvp-checklist.json`）后，优先运行校验脚本：
 
 ```bash
-python3 "$CLAUDE_SKILL_DIR/scripts/validate-checklist.py" path/to/mvp-checklist.json
+python3 "$CLAUDE_SKILL_DIR/scripts/validate-checklist.py" path/to/checklist.json
+# 实例化后：不传路径时走 resolver 决定当前 checklist
+scripts/harness/harnessctl validate
 ```
 
-这个脚本只读取和校验 JSON，不会修改文件。它检查必填字段、顶层字段类型、`status`、`priority`、`doing` ownership、`done` verification，以及 `dependencies` / `blocked_by` 引用是否存在。
+校验只有一份 semantic implementation（`references/scripts/validate_checklist.py`）；顶层
+`scripts/validate-checklist.py` 只是 thin wrapper，两者对相同输入保持 stdout/stderr/exit code parity。
+脚本只读取和校验 JSON，不会修改文件。它检查必填字段、顶层字段类型、`status`、`priority`、`doing`
+ownership、`done` verification，以及 `dependencies` / `blocked_by` 引用是否存在。
 
 ## 任务级材料
 

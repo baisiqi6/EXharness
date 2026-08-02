@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Validate a long-running-project-harness mvp-checklist.json file."""
+"""Validate a long-running-project-harness checklist file.
+
+This semantic implementation is distributed byte-for-byte across the
+standalone runtime template and the Coordinate-managed runtime. Thin
+entrypoint wrappers delegate here, and parity tests prevent a second
+validation rule set.
+"""
 
 from __future__ import annotations
 
@@ -303,13 +309,19 @@ def validate_checklist(data: Any) -> tuple[list[str], list[str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Validate a long-running-project-harness mvp-checklist.json file."
+        description=(
+            "Validate a long-running-project-harness checklist "
+            "(harness-checklist.json or mvp-checklist.json)."
+        )
     )
     parser.add_argument(
         "checklist",
         nargs="?",
-        default="mvp-checklist.json",
-        help="Path to mvp-checklist.json. Defaults to ./mvp-checklist.json.",
+        default="harness-checklist.json",
+        help=(
+            "Path to the checklist JSON. Defaults to ./harness-checklist.json; "
+            "the legacy name mvp-checklist.json is also accepted."
+        ),
     )
     args = parser.parse_args()
 

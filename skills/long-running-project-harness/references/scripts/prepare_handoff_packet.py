@@ -8,11 +8,12 @@ from harness_common import (
     append_event,
     harness_root,
     load_checklist,
+    mutate_checklist,
     read_text,
     rel,
     release_lease,
     require_item,
-    save_checklist,
+    resolve_item_plan,
     today,
     ensure_artifacts,
     ensure_workflow,
@@ -33,11 +34,10 @@ def main() -> int:
     checklist = load_checklist()
     item = require_item(checklist, args.item)
     workflow = ensure_workflow(item)
-    artifacts = ensure_artifacts(item)
     previous_owner = item.get("owner")
     previous_session = item.get("selected_in_session")
 
-    plan_path = root / "tasks" / args.item / "plan.md"
+    plan_path = resolve_item_plan(item, require_exists=True)
     progress_path = root / "progress.md"
     blocker_path = root / "current" / "blocker.md"
     packet_path = root / "current" / "handoff-packet.md"
@@ -96,16 +96,23 @@ def main() -> int:
 """
 
     write_text(packet_path, body + "\n")
-    artifacts["handoff_packet"] = rel(packet_path)
-    workflow["status"] = "handoff_requested"
-    workflow["handoff_from"] = previous_owner
-    workflow["handoff_target"] = args.target
-    workflow["updated_at"] = today()
-    release_lease(item)
-    item["owner"] = None
-    item["selected_in_session"] = None
-    item["updated_at"] = today()
-    save_checklist(checklist)
+
+    def callback(candidate: dict) -> None:
+        item = require_item(candidate, args.item)
+        workflow = ensure_workflow(item)
+        artifacts = ensure_artifacts(item)
+        artifacts["handoff_packet"] = rel(packet_path)
+        workflow["status"] = "handoff_requested"
+        workflow["handoff_from"] = previous_owner
+        workflow["handoff_target"] = args.target
+        workflow["updated_at"] = today()
+        release_lease(item)
+        item["status"] = "todo"
+        item["owner"] = None
+        item["selected_in_session"] = None
+        item["updated_at"] = today()
+
+    mutate_checklist(callback)
 
     append_event(
         "ASSIGN",

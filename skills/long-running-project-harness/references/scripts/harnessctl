@@ -16,6 +16,17 @@ usage() {
     cat <<'USAGE'
 Usage: {{SCRIPTS_DIR}}/harnessctl <command> [options]
 
+Checklist item commands:
+  add-item <id> --title TEXT --acceptance TEXT
+                 [--priority p0|p1|p2] [--plan PATH] [--dependency ID]... [--handoff TEXT]
+                               Register a new todo checklist item (no plan scaffold)
+  update-item <id> [--title TEXT] [--acceptance TEXT] [--priority p0|p1|p2]
+                 [--plan PATH] [--verification TEXT] [--handoff TEXT]
+                 [--add-dependency ID]... [--remove-dependency ID]...
+                               Update allowed fields of an existing item
+  migrate-checklist [--ack-managed-profile]
+                               Rename mvp-checklist.json to harness-checklist.json
+
 Workflow commands:
   assign <item-id> <owner> <session-id> [--actor operator] [--branch BRANCH]
                                Assign an item and claim a lease without starting implementation
@@ -35,7 +46,7 @@ Workflow commands:
                                Generate current/handoff-packet.md and event
   review-result <item-id> <reviewer> <approved|changes_requested|blocked> [--summary TEXT]
                                Record reviewer decision
-  mark-done <item-id> [actor] [--force --reason TEXT]
+  mark-done <item-id> [actor] [--verification TEXT] [--force --reason TEXT]
                                Mark done only after approved review, unless forced
 
 Packet and state commands:
@@ -48,8 +59,9 @@ Packet and state commands:
                                Generate current/blocker-packet.md and mark blocked
   closeout <item-id> [reviewer]
                                Generate current/closeout-packet.md; does not mark done
-  validate [checklist-path]    Validate mvp-checklist.json
-  doctor                       Health check for harness files
+  validate [checklist-path]    Validate the resolved checklist (harness-checklist.json
+                               or mvp-checklist.json); explicit path validates that file
+  doctor                       Health check for harness files (authority, locators, stale current)
 
 Options:
   -h, --help                   Show this help
@@ -59,6 +71,22 @@ USAGE
 cmd="${1:-}"
 
 case "${cmd}" in
+    add-item)
+        item="${2:-}"
+        [[ -n "${item}" ]] || { usage; exit 1; }
+        shift 2
+        python3 "$SCRIPT_DIR/checklist_items.py" add-item "${item}" "$@"
+        ;;
+    update-item)
+        item="${2:-}"
+        [[ -n "${item}" ]] || { usage; exit 1; }
+        shift 2
+        python3 "$SCRIPT_DIR/checklist_items.py" update-item "${item}" "$@"
+        ;;
+    migrate-checklist)
+        shift || true
+        python3 "$SCRIPT_DIR/checklist_items.py" migrate-checklist "$@"
+        ;;
     assign)
         item="${2:-}"
         owner="${3:-}"
@@ -189,16 +217,45 @@ EOF
         if [ $# -gt 0 ]; then
             CHECKLIST_PATH="$1"
         else
-            CHECKLIST_PATH="$HARNESS_ROOT/mvp-checklist.json"
+            CHECKLIST_PATH="$(python3 "$SCRIPT_DIR/harness_common.py" --resolved-checklist 2>/dev/null)"
+            if [ -z "$CHECKLIST_PATH" ]; then
+                echo "ERROR: could not resolve active checklist (none or dual authority)" >&2
+                exit 1
+            fi
         fi
         python3 "$SCRIPT_DIR/validate_checklist.py" "$CHECKLIST_PATH"
+        # canonical schema passed; now run the shared runtime locator check
+        # (project-context rules stay in harness_common, not the schema validator)
+        python3 "$SCRIPT_DIR/harness_common.py" --check-locators "$CHECKLIST_PATH"
         ;;
     doctor)
         echo "=== Harness Doctor ==="
         echo ""
 
+        echo "--- Checklist authority ---"
+        NEW_CHECKLIST="$HARNESS_ROOT/harness-checklist.json"
+        LEGACY_CHECKLIST="$HARNESS_ROOT/mvp-checklist.json"
+        if [ -f "$NEW_CHECKLIST" ] && [ -f "$LEGACY_CHECKLIST" ]; then
+            echo "  WARN  dual authority: harness-checklist.json and mvp-checklist.json both exist"
+            echo "  Fix: manually compare both files and keep exactly one authority"
+            echo "       (delete or move the superseded file); only when the legacy file is"
+            echo "       the sole remaining checklist may migrate-checklist be run"
+            DOCTOR_RESOLVED=""
+        elif [ -f "$NEW_CHECKLIST" ]; then
+            echo "  OK  harness-checklist.json (new filename, active)"
+            DOCTOR_RESOLVED="$NEW_CHECKLIST"
+        elif [ -f "$LEGACY_CHECKLIST" ]; then
+            echo "  OK  mvp-checklist.json (legacy filename, active)"
+            DOCTOR_RESOLVED="$LEGACY_CHECKLIST"
+        else
+            echo "  MISS  no checklist: harness-checklist.json / mvp-checklist.json"
+            echo "  Fix: create harness-checklist.json or restore a checklist file"
+            DOCTOR_RESOLVED=""
+        fi
+
+        echo ""
         echo "--- Required files ---"
-        for f in mvp-checklist.json progress.md; do
+        for f in progress.md; do
             if [ -f "$HARNESS_ROOT/$f" ]; then
                 echo "  OK  $f"
             else
@@ -240,36 +297,32 @@ EOF
 
         echo ""
         echo "--- Checklist validation ---"
-        python3 "$SCRIPT_DIR/validate_checklist.py" "$HARNESS_ROOT/mvp-checklist.json" || true
+        if [ -n "$DOCTOR_RESOLVED" ]; then
+            python3 "$SCRIPT_DIR/validate_checklist.py" "$DOCTOR_RESOLVED" || true
+        else
+            echo "  Skipped: no single active checklist to validate (none or dual authority)"
+        fi
 
         echo ""
         echo "--- Stale current check ---"
-        if [ -f "$HARNESS_ROOT/current/task_plan.md" ] && [ -f "$HARNESS_ROOT/mvp-checklist.json" ]; then
-            DOING_ID=$(python3 -c "
-import json
-try:
-    data = json.load(open('$HARNESS_ROOT/mvp-checklist.json'))
-    doing = [i for i in data['items'] if i.get('status') == 'doing']
-    if len(doing) == 1:
-        print(doing[0]['id'])
-    elif len(doing) > 1:
-        print('AMBIGUOUS')
-    else:
-        print('NONE')
-except Exception:
-    print('ERROR')
-" 2>/dev/null)
-            if [ "$DOING_ID" = "NONE" ]; then
+        if [ -n "$DOCTOR_RESOLVED" ] && [ -f "$HARNESS_ROOT/current/task_plan.md" ]; then
+            # The doing item's canonical plan comes from the shared plan
+            # locator (plan_path / artifacts.plan) via harness_common, never
+            # from a hardcoded tasks/<id>/plan.md default. The checklist path
+            # travels as argv, not as interpolated Python source.
+            if ! DOING_OUT="$(python3 "$SCRIPT_DIR/harness_common.py" --doctor-doing-plan "$DOCTOR_RESOLVED")"; then
+                echo "  ERROR: could not resolve doing item plan (see message above)"
+            elif [ "$DOING_OUT" = "NONE" ]; then
                 echo "  No item in doing status"
-            elif [ "$DOING_ID" = "AMBIGUOUS" ]; then
+            elif [ "$DOING_OUT" = "AMBIGUOUS" ]; then
                 echo "  WARN: multiple items in doing status"
-            elif [ "$DOING_ID" = "ERROR" ]; then
-                echo "  ERROR: could not read checklist"
             else
-                if [ -f "$HARNESS_ROOT/tasks/$DOING_ID/plan.md" ]; then
-                    echo "  Current item: $DOING_ID"
+                DOING_ID="$(printf '%s\n' "$DOING_OUT" | sed -n '1p')"
+                DOING_PLAN="$(printf '%s\n' "$DOING_OUT" | sed -n '2p')"
+                if [ -f "$DOING_PLAN" ]; then
+                    echo "  Current item: $DOING_ID (plan: $DOING_PLAN)"
                 else
-                    echo "  WARN: doing item $DOING_ID has no canonical plan"
+                    echo "  WARN: doing item $DOING_ID has no canonical plan at $DOING_PLAN"
                     echo "  Fix: {{SCRIPTS_DIR}}/harnessctl start $DOING_ID <owner> <session>"
                 fi
             fi

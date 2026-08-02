@@ -12,10 +12,11 @@ from harness_common import (
     append_event,
     harness_root,
     load_checklist,
+    mutate_checklist,
     read_text,
     rel,
     require_item,
-    save_checklist,
+    resolve_item_plan,
     today,
     ensure_artifacts,
     ensure_review,
@@ -49,10 +50,8 @@ def main() -> int:
     checklist = load_checklist()
     item = require_item(checklist, args.item)
     workflow = ensure_workflow(item)
-    artifacts = ensure_artifacts(item)
-    review = ensure_review(item)
 
-    plan_path = root / "tasks" / args.item / "plan.md"
+    plan_path = resolve_item_plan(item, require_exists=True)
     progress_path = root / "progress.md"
     review_path = root / "current" / "review.md"
     packet_path = root / "current" / "closeout-packet.md"
@@ -126,13 +125,20 @@ def main() -> int:
 """
 
     write_text(packet_path, body + "\n")
-    artifacts["closeout_packet"] = rel(packet_path)
-    workflow["status"] = "closeout_requested"
-    workflow["updated_at"] = today()
-    review["decision"] = None
-    review["reviewer"] = args.reviewer
-    item["updated_at"] = today()
-    save_checklist(checklist)
+
+    def callback(candidate: dict) -> None:
+        item = require_item(candidate, args.item)
+        workflow = ensure_workflow(item)
+        artifacts = ensure_artifacts(item)
+        review = ensure_review(item)
+        artifacts["closeout_packet"] = rel(packet_path)
+        workflow["status"] = "closeout_requested"
+        workflow["updated_at"] = today()
+        review["decision"] = None
+        review["reviewer"] = args.reviewer
+        item["updated_at"] = today()
+
+    mutate_checklist(callback)
 
     append_event(
         "RESULT",

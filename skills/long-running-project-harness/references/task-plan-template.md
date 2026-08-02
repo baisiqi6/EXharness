@@ -2,6 +2,14 @@
 
 这个模板用于某个正在执行的 checklist item。它不是项目总计划，而是任务级计划正文。
 
+> **Checklist 文件名权威规则（U1）**：新项目使用 `harness-checklist.json`，旧名
+> `mvp-checklist.json` 仍完整兼容；none/both 时 runtime fail closed，不要手动二选一。
+> 需要从旧名切换到新名时运行 `harnessctl migrate-checklist`。节点的新增与字段更新用
+> `harnessctl add-item` / `harnessctl update-item`，不要手改 JSON。
+> 一个 item 的 canonical plan 只允许一个 locator 答案（`plan_path` 或 `artifacts.plan`
+> 之一，或两者标准化后相同），冲突时 runtime fail closed；已存在的 locator 指向缺失
+> 文件时 `start` 会失败，不会偷偷重建默认 plan。
+
 推荐落点：
 
 - 规范正文：`<artifact-root>/tasks/<item-id>/plan.md`

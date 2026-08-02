@@ -16,17 +16,22 @@ from harness_common import (
     append_event,
     branch_for,
     claim_lease,
+    checklist_runtime_problems,
     fail,
     harness_root,
+    item_has_plan_locator,
     lease_is_expired,
     load_checklist,
+    mutate_checklist,
     rel,
     require_force_reason,
     require_item,
-    save_checklist,
+    resolve_item_plan,
+    safe_item_id_problem,
     today,
     unfinished_dependencies,
     utc_now,
+    validate_checklist,
     ensure_artifacts,
     ensure_review,
     ensure_workflow,
@@ -89,6 +94,9 @@ PLAN_TEMPLATE = """# {title}
 
 
 def ensure_plan_file(item: dict, owner: str, session: str) -> Path:
+    id_problem = safe_item_id_problem(item["id"])
+    if id_problem:
+        fail(f"cannot scaffold plan: {id_problem}")
     tasks_dir = harness_root() / "tasks" / item["id"]
     tasks_dir.mkdir(parents=True, exist_ok=True)
     plan_path = tasks_dir / "plan.md"
@@ -111,7 +119,7 @@ def ensure_plan_file(item: dict, owner: str, session: str) -> Path:
     return plan_path
 
 
-def update_current_pointer(item: dict) -> None:
+def update_current_pointer(item: dict, plan_path: Path) -> None:
     current_dir = harness_root() / "current"
     current_dir.mkdir(parents=True, exist_ok=True)
     pointer_path = current_dir / "task_plan.md"
@@ -123,7 +131,7 @@ def update_current_pointer(item: dict) -> None:
 - Status: doing
 - Owner: `{item['owner']}`
 - Session: `{item['selected_in_session']}`
-- Canonical plan: `{{HARNESS_ROOT}}/tasks/{item['id']}/plan.md`
+- Canonical plan: `{rel(plan_path)}`
 
 > This file is a pointer. Full plan content lives in the canonical plan above.
 """
@@ -181,6 +189,21 @@ def main() -> int:
     args = parser.parse_args()
 
     checklist = load_checklist()
+    # Validate the complete current checklist BEFORE any plan scaffold /
+    # mkdir / file write: an invalid current document must fail closed with
+    # zero side effects, not after the default plan was already created.
+    schema_errors, _ = validate_checklist(checklist)
+    if schema_errors:
+        fail(
+            f"current checklist is invalid; refusing to start:\n"
+            + "\n".join(f"  - {error}" for error in schema_errors[:8])
+        )
+    runtime_problems = checklist_runtime_problems(checklist)
+    if runtime_problems:
+        fail(
+            f"current checklist has runtime authority problems; refusing to start:\n"
+            + "\n".join(f"  - {problem}" for problem in runtime_problems)
+        )
     item = require_item(checklist, args.item)
     assert_can_start(
         checklist,
@@ -190,25 +213,35 @@ def main() -> int:
         reason=args.reason,
     )
 
-    workflow = ensure_workflow(item)
-    artifacts = ensure_artifacts(item)
-    ensure_review(item)
-    plan_path = ensure_plan_file(item, args.owner, args.session)
-    artifacts.setdefault("plan", rel(plan_path))
-    branch = branch_for(args.owner, args.item)
-    artifacts["branch"] = branch
+    # Plan resolution: with no locator at all, activation may scaffold the
+    # default plan; an existing locator whose file is missing fails closed
+    # instead of silently scaffolding over it.
+    has_locator = item_has_plan_locator(item)
+    plan_path = resolve_item_plan(item, require_exists=has_locator)
+    if not has_locator:
+        plan_path = ensure_plan_file(item, args.owner, args.session)
 
-    item["status"] = "doing"
-    item["owner"] = args.owner
-    item["selected_in_session"] = args.session
-    item["updated_at"] = today()
-    workflow["status"] = "running"
-    workflow["updated_at"] = today()
-    workflow["branch"] = branch
-    claim_lease(item, args.owner, args.session, args.lease_minutes)
+    def callback(candidate: dict) -> None:
+        item = require_item(candidate, args.item)
+        workflow = ensure_workflow(item)
+        artifacts = ensure_artifacts(item)
+        ensure_review(item)
+        artifacts.setdefault("plan", rel(plan_path))
+        branch = branch_for(args.owner, args.item)
+        artifacts["branch"] = branch
 
-    save_checklist(checklist)
-    update_current_pointer(item)
+        item["status"] = "doing"
+        item["owner"] = args.owner
+        item["selected_in_session"] = args.session
+        item["updated_at"] = today()
+        workflow["status"] = "running"
+        workflow["updated_at"] = today()
+        workflow["branch"] = branch
+        claim_lease(item, args.owner, args.session, args.lease_minutes)
+
+    committed = mutate_checklist(callback)
+    committed_item = require_item(committed, args.item)
+    update_current_pointer(committed_item, plan_path)
 
     status = "forced_takeover" if args.force else "running"
     append_event(
@@ -217,7 +250,7 @@ def main() -> int:
         actor=args.actor or args.owner,
         target=args.owner,
         status=status,
-        branch=branch,
+        branch=branch_for(args.owner, args.item),
         artifacts=[rel(plan_path)],
         summary=f"{args.owner} started {args.item}",
         metadata={"session": args.session, "force_reason": args.reason},
@@ -226,7 +259,7 @@ def main() -> int:
     print("")
     print(f"Updated checklist: {args.item} -> doing")
     print(f"Canonical plan: {plan_path}")
-    print(f"Current pointer: {{HARNESS_ROOT}}/current/task_plan.md")
+    print(f"Current pointer: {harness_root() / 'current' / 'task_plan.md'}")
     print("")
     print("Next: implement the plan steps, then run closeout when ready for review.")
     return 0

@@ -1,4 +1,5 @@
 {
+  "deployment_profile": "standalone",
   "commands": {
     "typecheck": null,
     "test": null,

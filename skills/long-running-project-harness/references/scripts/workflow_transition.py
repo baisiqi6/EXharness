@@ -11,12 +11,15 @@ from harness_common import (
     claim_lease,
     clear_current_pointer,
     fail,
+    item_has_plan_locator,
     lease_is_expired,
     load_checklist,
+    mutate_checklist,
+    rel,
     release_lease,
     require_force_reason,
     require_item,
-    save_checklist,
+    resolve_item_plan,
     today,
     unfinished_dependencies,
     utc_now,
@@ -81,34 +84,43 @@ def assert_claimable(
 
 
 def do_assign(args: argparse.Namespace) -> int:
-    checklist = load_checklist()
-    item = require_item(checklist, args.item)
-    assert_claimable(checklist, item, owner=args.owner, force=args.force, reason=args.reason)
+    def callback(checklist: dict) -> None:
+        item = require_item(checklist, args.item)
+        assert_claimable(checklist, item, owner=args.owner, force=args.force, reason=args.reason)
 
-    workflow = ensure_workflow(item)
-    artifacts = ensure_artifacts(item)
-    ensure_review(item)
-    branch = args.branch or branch_for(args.owner, args.item)
+        workflow = ensure_workflow(item)
+        artifacts = ensure_artifacts(item)
+        ensure_review(item)
+        branch = args.branch or branch_for(args.owner, args.item)
 
-    item["owner"] = args.owner
-    item["selected_in_session"] = args.session
-    item["updated_at"] = today()
-    workflow["status"] = "assigned"
-    workflow["updated_at"] = today()
-    workflow["branch"] = branch
-    artifacts["branch"] = branch
-    artifacts.setdefault("plan", "{{HARNESS_ROOT}}/tasks/" + args.item + "/plan.md")
-    claim_lease(item, args.owner, args.session, args.lease_minutes)
+        # The plan locator answer comes from the unified resolver. When the
+        # item already carries a locator (plan_path or artifacts.plan), never
+        # write a different default into the other field; only a locator-less
+        # item gets the default artifacts.plan.
+        plan_path = resolve_item_plan(item, require_exists=False)
+        if not item_has_plan_locator(item):
+            artifacts.setdefault("plan", rel(plan_path))
 
-    save_checklist(checklist)
+        item["owner"] = args.owner
+        item["selected_in_session"] = args.session
+        item["updated_at"] = today()
+        workflow["status"] = "assigned"
+        workflow["updated_at"] = today()
+        workflow["branch"] = branch
+        artifacts["branch"] = branch
+        claim_lease(item, args.owner, args.session, args.lease_minutes)
+
+    committed = mutate_checklist(callback)
+    committed_item = require_item(committed, args.item)
+    committed_plan = resolve_item_plan(committed_item, require_exists=False)
     append_event(
         "ASSIGN",
         task=args.item,
         actor=args.actor,
         target=args.owner,
         status="assigned",
-        branch=branch,
-        artifacts=[artifacts["plan"]],
+        branch=committed_item.get("workflow", {}).get("branch"),
+        artifacts=[rel(committed_plan)],
         summary=args.summary or f"{args.actor} assigned {args.item} to {args.owner}",
         metadata={"session": args.session, "force_reason": args.reason},
     )
@@ -116,32 +128,33 @@ def do_assign(args: argparse.Namespace) -> int:
 
 
 def do_accept(args: argparse.Namespace) -> int:
-    checklist = load_checklist()
-    item = require_item(checklist, args.item)
-    assert_claimable(checklist, item, owner=args.owner, force=args.force, reason=args.reason)
+    def callback(checklist: dict) -> None:
+        item = require_item(checklist, args.item)
+        assert_claimable(checklist, item, owner=args.owner, force=args.force, reason=args.reason)
 
-    workflow = ensure_workflow(item)
-    branch = args.branch or workflow.get("branch") or branch_for(args.owner, args.item)
-    artifacts = ensure_artifacts(item)
-    item["status"] = "doing"
-    item["owner"] = args.owner
-    item["selected_in_session"] = args.session
-    item["updated_at"] = today()
-    workflow["status"] = "running"
-    workflow.pop("handoff_target", None)
-    workflow["updated_at"] = today()
-    workflow["branch"] = branch
-    artifacts["branch"] = branch
-    claim_lease(item, args.owner, args.session, args.lease_minutes)
+        workflow = ensure_workflow(item)
+        branch = args.branch or workflow.get("branch") or branch_for(args.owner, args.item)
+        artifacts = ensure_artifacts(item)
+        item["status"] = "doing"
+        item["owner"] = args.owner
+        item["selected_in_session"] = args.session
+        item["updated_at"] = today()
+        workflow["status"] = "running"
+        workflow.pop("handoff_target", None)
+        workflow["updated_at"] = today()
+        workflow["branch"] = branch
+        artifacts["branch"] = branch
+        claim_lease(item, args.owner, args.session, args.lease_minutes)
 
-    save_checklist(checklist)
+    committed = mutate_checklist(callback)
+    committed_item = require_item(committed, args.item)
     append_event(
         "ACCEPT",
         task=args.item,
         actor=args.owner,
         target=args.owner,
         status="running",
-        branch=branch,
+        branch=committed_item.get("workflow", {}).get("branch"),
         summary=args.summary or f"{args.owner} accepted {args.item}",
         metadata={"session": args.session, "force_reason": args.reason},
     )
@@ -149,52 +162,59 @@ def do_accept(args: argparse.Namespace) -> int:
 
 
 def do_decline(args: argparse.Namespace) -> int:
-    checklist = load_checklist()
-    item = require_item(checklist, args.item)
-    workflow = ensure_workflow(item)
+    def callback(checklist: dict) -> None:
+        item = require_item(checklist, args.item)
+        workflow = ensure_workflow(item)
 
-    target = workflow.get("handoff_target") or item.get("owner")
-    if target and target != args.actor and not args.force:
-        fail(f"item '{args.item}' is targeted at {target}; use --force --reason to decline as another actor")
-    require_force_reason(args.force, args.reason)
+        target = workflow.get("handoff_target") or item.get("owner")
+        if target and target != args.actor and not args.force:
+            fail(
+                f"item '{args.item}' is targeted at {target}; "
+                "use --force --reason to decline as another actor"
+            )
+        require_force_reason(args.force, args.reason)
 
-    workflow["status"] = "declined"
-    workflow["declined_by"] = args.actor
-    workflow["decline_reason"] = args.reason or args.summary or "Declined."
-    workflow["updated_at"] = today()
-    item["owner"] = None
-    item["selected_in_session"] = None
-    item["updated_at"] = today()
-    release_lease(item)
+        # Declined items return to the unowned todo queue and release the
+        # workflow; the DECLINE evidence (event + declined_by + decline_reason)
+        # is preserved so the override stays auditable.
+        item["status"] = "todo"
+        item["owner"] = None
+        item["selected_in_session"] = None
+        item["updated_at"] = today()
+        workflow["status"] = "released"
+        workflow["declined_by"] = args.actor
+        workflow["decline_reason"] = args.reason or args.summary or "Declined."
+        workflow["updated_at"] = today()
+        release_lease(item)
 
-    save_checklist(checklist)
+    mutate_checklist(callback)
     append_event(
         "DECLINE",
         task=args.item,
         actor=args.actor,
         status="declined",
-        summary=args.summary or workflow["decline_reason"],
+        summary=args.summary or args.reason or "Declined.",
         metadata={"force_reason": args.reason},
     )
     return 0
 
 
 def do_renew_lease(args: argparse.Namespace) -> int:
-    checklist = load_checklist()
-    item = require_item(checklist, args.item)
-    lease = active_lease(item, utc_now())
-    if lease and lease.get("owner") != args.owner and not args.force:
-        fail(f"item '{args.item}' has active lease owned by {lease.get('owner')}")
-    if item.get("owner") and item.get("owner") != args.owner and not args.force:
-        fail(f"item '{args.item}' is owned by {item.get('owner')}")
-    require_force_reason(args.force, args.reason)
+    def callback(checklist: dict) -> None:
+        item = require_item(checklist, args.item)
+        lease = active_lease(item, utc_now())
+        if lease and lease.get("owner") != args.owner and not args.force:
+            fail(f"item '{args.item}' has active lease owned by {lease.get('owner')}")
+        if item.get("owner") and item.get("owner") != args.owner and not args.force:
+            fail(f"item '{args.item}' is owned by {item.get('owner')}")
+        require_force_reason(args.force, args.reason)
 
-    item["owner"] = args.owner
-    item["selected_in_session"] = args.session
-    item["updated_at"] = today()
-    claim_lease(item, args.owner, args.session, args.lease_minutes)
+        item["owner"] = args.owner
+        item["selected_in_session"] = args.session
+        item["updated_at"] = today()
+        claim_lease(item, args.owner, args.session, args.lease_minutes)
 
-    save_checklist(checklist)
+    mutate_checklist(callback)
     append_event(
         "LEASE",
         task=args.item,
@@ -208,26 +228,29 @@ def do_renew_lease(args: argparse.Namespace) -> int:
 
 
 def do_release(args: argparse.Namespace) -> int:
-    checklist = load_checklist()
-    item = require_item(checklist, args.item)
-    require_force_reason(args.force, args.reason)
+    def callback(checklist: dict) -> None:
+        item = require_item(checklist, args.item)
+        require_force_reason(args.force, args.reason)
 
-    owner = item.get("owner")
-    if owner and args.actor != owner and not args.force:
-        fail(f"item '{args.item}' is owned by {owner}; use --force --reason to release as another actor")
+        owner = item.get("owner")
+        if owner and args.actor != owner and not args.force:
+            fail(
+                f"item '{args.item}' is owned by {owner}; "
+                "use --force --reason to release as another actor"
+            )
 
-    workflow = ensure_workflow(item)
-    if item.get("status") == "doing":
-        item["status"] = "todo"
-    item["owner"] = None
-    item["selected_in_session"] = None
-    item["updated_at"] = today()
-    workflow["status"] = "released"
-    workflow["updated_at"] = today()
-    release_lease(item)
+        workflow = ensure_workflow(item)
+        if item.get("status") == "doing":
+            item["status"] = "todo"
+        item["owner"] = None
+        item["selected_in_session"] = None
+        item["updated_at"] = today()
+        workflow["status"] = "released"
+        workflow["updated_at"] = today()
+        release_lease(item)
+
+    mutate_checklist(callback)
     clear_current_pointer(args.item, "released")
-
-    save_checklist(checklist)
     append_event(
         "RELEASE",
         task=args.item,
@@ -240,35 +263,35 @@ def do_release(args: argparse.Namespace) -> int:
 
 
 def do_unblock(args: argparse.Namespace) -> int:
-    checklist = load_checklist()
-    item = require_item(checklist, args.item)
-    workflow = ensure_workflow(item)
-    review = ensure_review(item)
+    def callback(checklist: dict) -> None:
+        item = require_item(checklist, args.item)
+        workflow = ensure_workflow(item)
+        review = ensure_review(item)
 
-    if item.get("status") != "blocked":
-        fail(f"item '{args.item}' is not blocked")
+        if item.get("status") != "blocked":
+            fail(f"item '{args.item}' is not blocked")
 
-    unblock_owner = workflow.get("unblock_owner")
-    if unblock_owner and unblock_owner != args.actor and not args.force:
-        fail(
-            f"item '{args.item}' is assigned to unblock owner {unblock_owner}; "
-            "use --force --reason only for explicit override"
-        )
+        unblock_owner = workflow.get("unblock_owner")
+        if unblock_owner and unblock_owner != args.actor and not args.force:
+            fail(
+                f"item '{args.item}' is assigned to unblock owner {unblock_owner}; "
+                "use --force --reason only for explicit override"
+            )
 
-    require_force_reason(args.force, args.reason)
-    item["status"] = "todo"
-    item["blocked_reason"] = None
-    item["blocked_by"] = []
-    item["updated_at"] = today()
-    workflow["status"] = "unblocked"
-    workflow["unblocked_by"] = args.actor
-    workflow["unblock_decision"] = args.decision
-    workflow["updated_at"] = today()
-    review["decision"] = None
-    release_lease(item)
+        require_force_reason(args.force, args.reason)
+        item["status"] = "todo"
+        item["blocked_reason"] = None
+        item["blocked_by"] = []
+        item["updated_at"] = today()
+        workflow["status"] = "unblocked"
+        workflow["unblocked_by"] = args.actor
+        workflow["unblock_decision"] = args.decision
+        workflow["updated_at"] = today()
+        review["decision"] = None
+        release_lease(item)
+
+    mutate_checklist(callback)
     clear_current_pointer(args.item, "unblocked")
-
-    save_checklist(checklist)
     append_event(
         "UNBLOCK",
         task=args.item,
@@ -284,38 +307,39 @@ def do_review_result(args: argparse.Namespace) -> int:
     if args.decision not in APPROVAL_DECISIONS:
         fail(f"review decision must be one of: {', '.join(sorted(APPROVAL_DECISIONS))}")
 
-    checklist = load_checklist()
-    item = require_item(checklist, args.item)
-    review = ensure_review(item)
-    workflow = ensure_workflow(item)
-    previous_workflow_status = workflow.get("status")
+    def callback(checklist: dict) -> None:
+        item = require_item(checklist, args.item)
+        review = ensure_review(item)
+        workflow = ensure_workflow(item)
+        previous_workflow_status = workflow.get("status")
 
-    review["decision"] = args.decision
-    review["reviewer"] = args.reviewer
-    review["phase"] = previous_workflow_status
-    review["updated_at"] = today()
-    if args.summary:
-        review["summary"] = args.summary
-    if args.artifact:
-        review["artifact"] = args.artifact
+        review["decision"] = args.decision
+        review["reviewer"] = args.reviewer
+        review["phase"] = previous_workflow_status
+        review["updated_at"] = today()
+        if args.summary:
+            review["summary"] = args.summary
+        if args.artifact:
+            review["artifact"] = args.artifact
 
-    if args.decision == "approved":
-        workflow["status"] = "review_approved"
-    elif args.decision == "changes_requested":
-        workflow["status"] = "changes_requested"
-    else:
-        item["status"] = "blocked"
-        item["blocked_reason"] = args.summary or "Reviewer blocked this item."
-        workflow["status"] = "blocked"
-    workflow["updated_at"] = today()
-    item["updated_at"] = today()
+        if args.decision == "approved":
+            workflow["status"] = "review_approved"
+        elif args.decision == "changes_requested":
+            workflow["status"] = "changes_requested"
+        else:
+            item["status"] = "blocked"
+            item["blocked_reason"] = args.summary or "Reviewer blocked this item."
+            workflow["status"] = "blocked"
+        workflow["updated_at"] = today()
+        item["updated_at"] = today()
 
-    save_checklist(checklist)
+    committed = mutate_checklist(callback)
+    committed_item = require_item(committed, args.item)
     append_event(
         "REVIEW",
         task=args.item,
         actor=args.reviewer,
-        target=item.get("owner"),
+        target=committed_item.get("owner"),
         status=args.decision,
         artifacts=[args.artifact] if args.artifact else [],
         summary=args.summary or f"{args.reviewer} marked {args.item} {args.decision}",
@@ -326,35 +350,48 @@ def do_review_result(args: argparse.Namespace) -> int:
 def do_mark_done(args: argparse.Namespace) -> int:
     checklist = load_checklist()
     item = require_item(checklist, args.item)
-    require_force_reason(args.force, args.reason)
-
     if item.get("status") == "done":
         print(f"Item already done: {args.item}")
         return 0
 
-    review = ensure_review(item)
-    workflow = ensure_workflow(item)
-    if not args.force:
-        if review.get("decision") != "approved":
-            fail("mark-done requires review.decision == approved; use --force --reason only for explicit human override")
-        if review.get("phase") != "closeout_requested":
-            fail("mark-done requires approved review of a closeout request; use --force --reason only for explicit human override")
+    def callback(checklist: dict) -> None:
+        item = require_item(checklist, args.item)
+        require_force_reason(args.force, args.reason)
 
-    item["status"] = "done"
-    item["updated_at"] = today()
-    workflow["status"] = "closed"
-    workflow["updated_at"] = today()
-    release_lease(item)
-    item["owner"] = None
-    item["selected_in_session"] = None
+        review = ensure_review(item)
+        workflow = ensure_workflow(item)
+        if not args.force:
+            if review.get("decision") != "approved":
+                fail("mark-done requires review.decision == approved; use --force --reason only for explicit human override")
+            if review.get("phase") != "closeout_requested":
+                fail("mark-done requires approved review of a closeout request; use --force --reason only for explicit human override")
+
+        existing_verification = item.get("verification")
+        if not ((isinstance(existing_verification, str) and existing_verification.strip()) or args.verification):
+            fail(
+                "mark-done requires an existing non-empty verification or "
+                "an explicit --verification TEXT written in the same mutation; "
+                "no placeholder text is generated"
+            )
+        if args.verification:
+            item["verification"] = args.verification
+
+        item["status"] = "done"
+        item["updated_at"] = today()
+        workflow["status"] = "closed"
+        workflow["updated_at"] = today()
+        release_lease(item)
+        item["owner"] = None
+        item["selected_in_session"] = None
+
+    committed = mutate_checklist(callback)
+    committed_item = require_item(committed, args.item)
     clear_current_pointer(args.item, "closed")
-
-    save_checklist(checklist)
     append_event(
         "CLOSE",
         task=args.item,
         actor=args.actor,
-        target=item.get("owner"),
+        target=committed_item.get("owner"),
         status="done",
         artifacts=[args.artifact] if args.artifact else [],
         summary=args.summary or f"{args.actor} closed {args.item}",
@@ -437,6 +474,11 @@ def build_parser() -> argparse.ArgumentParser:
     done.add_argument("--actor", default="operator")
     done.add_argument("--summary", default=None)
     done.add_argument("--artifact", default=None)
+    done.add_argument(
+        "--verification",
+        default=None,
+        help="Verification text written in the same mutation when the item has none.",
+    )
     done.add_argument("--force", action="store_true")
     done.add_argument("--reason", default=None)
     done.set_defaults(func=do_mark_done)

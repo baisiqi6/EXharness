@@ -7,25 +7,15 @@ summary pointer to current/task_plan.md.
 from __future__ import annotations
 
 import argparse
-import json
-import sys
-from pathlib import Path
 
-
-def project_root() -> Path:
-    return Path(__file__).resolve().parents[{{PROJECT_ROOT_DEPTH}}]
-
-
-def harness_root() -> Path:
-    return project_root() / "{{HARNESS_ROOT}}"
-
-
-def read_text(path: Path) -> str:
-    return path.read_text(encoding="utf-8") if path.exists() else ""
-
-
-def load_json(path: Path) -> dict:
-    return json.loads(read_text(path))
+from harness_common import (
+    load_checklist,
+    project_root,
+    read_text,
+    rel,
+    require_item,
+    resolve_item_plan,
+)
 
 
 def extract_section(text: str, heading: str, next_heading: str | None = None) -> str:
@@ -115,7 +105,7 @@ def build_current_pointer(
 
 ## Notes
 
-- Canonical plan lives at `{{HARNESS_ROOT}}/tasks/<item-id>/plan.md`
+- Canonical plan lives at `{canonical_rel_path}`
 - This file is a pointer/summary, not the full plan
 - Re-run sync after significant canonical plan changes
 """
@@ -126,28 +116,25 @@ def main() -> int:
     parser.add_argument("--item", required=True, help="Checklist item id, e.g. mvp-003")
     args = parser.parse_args()
 
-    root = harness_root()
-    checklist_path = root / "mvp-checklist.json"
-    checklist = load_json(checklist_path)
-    item = next((entry for entry in checklist["items"] if entry["id"] == args.item), None)
-    if item is None:
-        raise SystemExit(f"Checklist item not found: {args.item}")
+    checklist = load_checklist()
+    item = require_item(checklist, args.item)
 
-    canonical_plan_path = root / "tasks" / args.item / "plan.md"
-    if not canonical_plan_path.exists():
-        raise SystemExit(f"Canonical plan not found: {canonical_plan_path}")
+    plan_path = resolve_item_plan(item, require_exists=True)
+    if not plan_path.is_file():
+        raise SystemExit(f"Canonical plan not found: {plan_path}")
 
-    text = read_text(canonical_plan_path)
+    text = read_text(plan_path)
     goal = compact_paragraph(extract_section(text, "## Goal", "## In Scope"))
     in_scope = extract_bullets(extract_section(text, "## In Scope", "## Out Of Scope"), limit=4)
     steps = extract_bullets(extract_section(text, "## Steps", "## Verification"), limit=4)
     exit_criteria = extract_bullets(extract_section(text, "## Exit Criteria", "## Handoff"), limit=4)
 
+    root = project_root() / "{{HARNESS_ROOT}}"
     current_path = root / "current" / "task_plan.md"
     current_path.parent.mkdir(parents=True, exist_ok=True)
     body = build_current_pointer(
         item=item,
-        canonical_rel_path=str(canonical_plan_path.relative_to(project_root())),
+        canonical_rel_path=rel(plan_path),
         goal=goal,
         in_scope=in_scope,
         steps=steps,
@@ -155,7 +142,7 @@ def main() -> int:
     )
     current_path.write_text(body, encoding="utf-8")
 
-    print(f"Synced current task pointer from {canonical_plan_path}")
+    print(f"Synced current task pointer from {plan_path}")
     print(f"- current pointer: {current_path}")
     return 0
 

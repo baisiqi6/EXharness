@@ -119,6 +119,13 @@ tasks/
 
 ## mvp-checklist.json
 
+> **文件名权威规则（U1）**：新项目使用 `harness-checklist.json`；`mvp-checklist.json`
+> 作为 legacy 文件名继续完整可用。runtime 通过唯一 resolver 决定当前 checklist：
+> 只有新名、只有旧名都正常读写；两者都没有或同时存在时 fail closed（doctor
+> 只诊断 dual authority，不宣布哪份 active）。需要从旧名切换到新名时运行
+> `harnessctl migrate-checklist`（只做同目录 rename，不改 bytes，不提交 Git）。
+> 不要在普通 read/mutation 下手动二选一。
+
 ```json
 {
   "project": "project-name",
@@ -180,12 +187,43 @@ tasks/
 校验 checklist：
 
 ```bash
-# 跨项目直接引用（不需要实例化脚本）
-python3 "$CLAUDE_SKILL_DIR/scripts/validate-checklist.py" "$PROJECT_HARNESS_ROOT/mvp-checklist.json"
+# 跨项目直接引用（不需要实例化脚本；legacy 名 mvp-checklist.json 也接受）
+python3 "$CLAUDE_SKILL_DIR/scripts/validate-checklist.py" "$PROJECT_HARNESS_ROOT/harness-checklist.json"
 
-# 实例化后使用本地脚本
-python3 scripts/harness/validate_checklist.py "$PROJECT_HARNESS_ROOT/mvp-checklist.json"
+# 实例化后使用本地脚本（不传路径时走 resolver）
+python3 scripts/harness/validate_checklist.py "$PROJECT_HARNESS_ROOT/harness-checklist.json"
+scripts/harness/harnessctl validate
 ```
+
+### 重要节点登记（add-item / update-item）
+
+operator 需要新增或调整重要节点时，用 `harnessctl` 落盘，不要手改 JSON：
+
+```bash
+# 新增 todo 节点（初始状态固定 todo，priority 默认 p1）
+scripts/harness/harnessctl add-item mvp-004 \
+  --title "Implement node handlers" \
+  --acceptance "Node handlers pass the configured test suite." \
+  --priority p1 \
+  --dependency mvp-002 \
+  --handoff "Next session starts from current/task_plan.md."
+
+# 更新已存在节点的允许字段（title/acceptance/priority/plan/verification/handoff/依赖）
+scripts/harness/harnessctl update-item mvp-004 \
+  --acceptance "Updated acceptance text." \
+  --add-dependency mvp-003
+```
+
+规则：
+
+- `add-item` 只创建 `todo` 节点；不创建 plan 文件、不自动 start、不写 lease/review/workflow 占位对象。
+- 只有提供 `--plan` 时才写 plan locator；同一节点不要同时维护 `plan_path` 与 `artifacts.plan` 两个不同值。
+- `--plan` 指向的文件必须已存在；Standalone 允许 operator 明确选择 external absolute plan locator
+  （这是 operator 选择，不是 containment 安全保证）。
+- `update-item` 不能修改 `status`、`owner`、`selected_in_session`、`lease`、`workflow.status`、`review.decision`；
+  这些走 lifecycle 命令。未触碰字段与未知兼容字段原样保留。
+- `deployment_profile=coordinate-managed` 下裸 add/update fail closed，走 Coordinate 入口；
+  `migrate-checklist` 需要显式 `--ack-managed-profile`（只是防误操作确认，不是 authority token）。
 
 ## progress.md
 
@@ -223,6 +261,7 @@ Harness root:
 
 ```json
 {
+  "deployment_profile": "standalone",
   "commands": {
     "typecheck": "python -m mypy src",
     "test": "python -m pytest",
@@ -244,6 +283,12 @@ Harness root:
 ```
 
 如果没有 `harness-config.json`，脚本会尝试从 `package.json` 推断 `typecheck`、`test`、`build`。不要在模板里硬编码 `pnpm`，除非实例项目确实使用它。
+
+`deployment_profile` 只接受 `standalone` 与 `coordinate-managed`，缺省按 `standalone` 兼容处理：
+
+- `standalone`：裸 `add-item` / `update-item` 可用。
+- `coordinate-managed`：裸 add/update fail closed（指向 Coordinate 入口）；
+  lifecycle 命令仍可被 Coordinate 的 HarnessAdapter 受控调用；`migrate-checklist` 需要显式 `--ack-managed-profile`。
 
 ## runbook.md
 

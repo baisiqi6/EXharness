@@ -2,6 +2,10 @@
   "project": "project-name",
   "harness_root": "docs/project-harness",
   "generated_at": "YYYY-MM-DDTHH:MM:SSZ",
+  "source": {
+    "checklist_path": "docs/project-harness/harness-checklist.json",
+    "checklist_sha256": "<64 hex of the exact bytes the resolver read>"
+  },
   "current_status": "Brief human-readable project summary derived from progress.md",
   "current_item": {
     "id": "mvp-003",
@@ -49,7 +53,7 @@
     "scope": "docs/project-harness/scope.md",
     "architecture": "docs/project-harness/architecture.md",
     "domain_model": "docs/project-harness/domain-model.md",
-    "checklist": "docs/project-harness/mvp-checklist.json",
+    "checklist": "docs/project-harness/harness-checklist.json",
     "progress": "docs/project-harness/progress.md",
     "runbook": "docs/project-harness/runbook.md",
     "config": "docs/project-harness/harness-config.json",
@@ -59,7 +63,7 @@
   "commands": {
     "state": "scripts/harness/harnessctl state",
     "session_init": "scripts/harness/harnessctl session-init",
-    "validate_checklist": "python3 scripts/harness/validate_checklist.py docs/project-harness/mvp-checklist.json",
+    "validate_checklist": "python3 scripts/harness/validate_checklist.py docs/project-harness/harness-checklist.json",
     "typecheck": "python -m mypy src",
     "test": "python -m pytest"
   },

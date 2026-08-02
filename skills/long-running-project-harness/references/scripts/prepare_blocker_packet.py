@@ -8,11 +8,12 @@ from harness_common import (
     append_event,
     harness_root,
     load_checklist,
+    mutate_checklist,
     read_text,
     rel,
     release_lease,
     require_item,
-    save_checklist,
+    resolve_item_plan,
     today,
     ensure_artifacts,
     ensure_workflow,
@@ -41,9 +42,8 @@ def main() -> int:
     checklist = load_checklist()
     item = require_item(checklist, args.item)
     workflow = ensure_workflow(item)
-    artifacts = ensure_artifacts(item)
 
-    plan_path = root / "tasks" / args.item / "plan.md"
+    plan_path = resolve_item_plan(item, require_exists=True)
     blocker_path = root / "current" / "blocker.md"
     packet_path = root / "current" / "blocker-packet.md"
     blocker_text = read_text(blocker_path).rstrip()
@@ -97,17 +97,23 @@ def main() -> int:
 """
 
     write_text(packet_path, body + "\n")
-    artifacts["blocker_packet"] = rel(packet_path)
-    item["status"] = "blocked"
-    item["blocked_reason"] = reason
-    item["owner"] = None
-    item["selected_in_session"] = None
-    item["updated_at"] = today()
-    workflow["status"] = "blocked"
-    workflow["unblock_owner"] = args.unblock_owner
-    workflow["updated_at"] = today()
-    release_lease(item)
-    save_checklist(checklist)
+
+    def callback(candidate: dict) -> None:
+        item = require_item(candidate, args.item)
+        workflow = ensure_workflow(item)
+        artifacts = ensure_artifacts(item)
+        artifacts["blocker_packet"] = rel(packet_path)
+        item["status"] = "blocked"
+        item["blocked_reason"] = reason
+        item["owner"] = None
+        item["selected_in_session"] = None
+        item["updated_at"] = today()
+        workflow["status"] = "blocked"
+        workflow["unblock_owner"] = args.unblock_owner
+        workflow["updated_at"] = today()
+        release_lease(item)
+
+    mutate_checklist(callback)
 
     append_event(
         "BLOCKER",

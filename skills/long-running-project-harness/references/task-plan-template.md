@@ -30,6 +30,7 @@ symlink 绕过。
 ## Item
 
 - Checklist item:
+- External issue（可选；GitHub-backed 项目应与 `issue-<number>` 一致）:
 - Owner:
 - Session:
 - Updated at:

@@ -17,6 +17,7 @@
 - **项目记忆**：`scope.md`（长期目标 + non-goals）、`architecture.md`、`domain-model.md`、`runbook.md` 等稳定规范，加上 `harness-checklist.json` 的机器可读任务状态（legacy 名 `mvp-checklist.json` 继续兼容）。
 - **任务追踪**：每个任务有 `tasks/<item-id>/plan.md` canonical plan 和 task-scoped evidence（bootstrap、review、handoff、verdict、receipt），不会被后续任务覆盖。
 - **多 agent 协作协议**：operator / worker / reviewer 显式分工，handoff / review / blocker / closeout packet 让交接可定位、可审计；`events.jsonl` 追加记录关键事件。
+- **GitHub-backed 团队协作**：直接复用 Issue identity、assignee、branch/worktree 与 PR；EXharness 负责计划、执行、验证和恢复，不再造 issue tracker 或 distributed lock。
 - **薄运行层**：`harnessctl` 命令、checklist 校验、状态派生、packet 生成、本地 owner/lease 护栏、确定性 session init——减少人工搬运，但不取代你的判断。
 
 这个 skill 借鉴的是"持久化文件、checklist、progress log、git checkpoint、deterministic session init"这类通用 harness 方法，而不是任何外部框架的代码、prompt、文件结构或命名约定。
@@ -102,6 +103,31 @@ docs/project-harness/
 ```
 
 之后每次开新 session，agent 会先读这些文件恢复上下文，而不是从零开始。
+
+## GitHub 团队协作
+
+对 GitHub-backed 项目，建议把 Issue number 直接作为 repo-scoped 稳定身份：Issue `#123` 对应
+checklist item `issue-123` 和 `tasks/issue-123/plan.md`。开工前先确认 Issue 仍 open、无人认领且没有
+active implementation PR，再通过 assignee 或项目约定的 label 认领；随后在独立 branch/worktree 中
+执行，最后由 PR 承担 diff、CI、review、冲突解决和 merge。
+
+```bash
+scripts/harness/harnessctl add-item issue-123 \
+  --title "修复导入失败" \
+  --acceptance "回归测试通过，PR 关联并关闭 #123"
+```
+
+这里没有第二套锁或任务系统：
+
+- GitHub Issue 是需求、全局可见身份和 cooperative claim；assignee 不是数据库级 hard lock。
+- branch 内的 checklist 是本次实现的 merge candidate；`main` 上的 checklist 是已接受的 canonical snapshot。
+- 团队当前正在做什么，以实时 Issue/PR 为全局视图；未合并分支的 item 不会提前写进 `main` checklist。
+- EXharness item 保存执行状态，`tasks/<item-id>/plan.md` 保存实现计划；Issue 不复制这些细节。
+- 两个不同 Issue 的节点在 PR 中正常合并；merge candidate 必须运行 checklist validator。同一 `issue-123` 出现重复或不同语义时停止合并，由 reviewer 对照 Issue 决定，不能静默改号或覆盖。
+
+普通、单 session、无需跨人协作或恢复的小任务仍可直接完成，不强制先建 Issue 或 checklist item。
+没有 GitHub 的 Standalone 项目继续使用 operator 选择的安全 ID；Coordinate-managed 项目仍由
+Coordinate 的 authority 管理节点。
 
 ## 和 Coordinate / MultiNexus 的关系
 

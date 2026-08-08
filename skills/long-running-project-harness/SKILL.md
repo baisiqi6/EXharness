@@ -437,6 +437,44 @@ active）。从旧名切换到新名运行 `harnessctl migrate-checklist`（同�
 
 Branch 字段协议：`workflow.branch` 是工作分支，通常由 `git.branch_namespace` 生成；`artifacts.branch` 与其保持一致；`artifacts.pr` 是 PR 链接；远程 agent 不得改非自己 namespace 下的 branch，除非 human 明确授权。
 
+### GitHub-backed 团队协作 profile
+
+团队协作不要在 harness 内再造 Issue registry、ID allocator、phase lock 或 distributed lock。对使用
+GitHub Issues/PRs 的单仓库项目，直接复用以下边界：
+
+- **GitHub Issue**：需求、repo-scoped identity、认领状态和人类可见讨论。Issue `#123` 对应
+  checklist item ID `issue-123`；ID 在任务生命周期内不改号。
+- **assignee / 约定 label**：cooperative claim。开工前检查 Issue open、无人认领且没有 active
+  implementation PR，认领后再读一次远端状态；这降低重复劳动，但不是数据库级 hard lock。
+- **branch/worktree**：每个 writer 的文件和 Git 隔离。分支中的 checklist 是 merge candidate；
+  `main` 中的 checklist 是已经通过 PR 接受的 canonical snapshot。
+- **实时全局视图**：查看 open/assigned Issue 与 active PR。未合并分支的执行状态不提前写进 `main`
+  checklist，也不要求 checklist 承担跨 clone 的 live query。
+- **EXharness**：item 保存 coarse execution state，`tasks/issue-123/plan.md` 保存具体执行计划，
+  review/verification/receipt 保存交付证据；不要把这些正文复制进 Issue。
+- **PR**：代码与 checklist diff、CI、review、冲突解决和 merge gate；正文使用 `Closes #123` 或项目
+  等价约定建立关闭关系。
+
+最小流程：
+
+1. 选择 open、无人认领且没有 active implementation PR 的 Issue；通过 assignee/label 认领。
+2. Standalone 使用 `harnessctl add-item issue-123 ...` 登记重要或跨 session 节点；Coordinate-managed
+   仍走 Coordinate combined-create/mirror 入口，禁止裸 add/update；普通小任务仍不强制登记。
+3. 创建包含 `issue-123` 的独立 branch/worktree，激活 item，维护唯一 canonical plan。
+4. worker 实现，独立 reviewer 审查，运行与风险相称的 tests。
+5. 创建关联 Issue 的 PR；对 merge candidate 运行 checklist validator 并解决冲突，合并后由项目流程
+   关闭 item/Issue。
+
+冲突规则只保护真实 authority 冲突：两个不同 Issue（例如 `issue-123`、`issue-124`）即使处于同一
+phase，也应保留为两个节点并在 PR 中合并。Git 文本合并未报冲突不等于安全：validator 仍须检查
+duplicate ID；同一 ID 若 title、acceptance 或计划语义不同，必须 fail closed，由 reviewer 回到 Issue
+核对，不能静默覆盖、重编号或创建第二份 checklist。若项目横跨
+多个 GitHub repository，Issue number 不再全局唯一，应由上层项目明确 repo namespace；在出现该真实
+需求前，不向通用 schema 增加字段。
+
+这个 profile 不让本地 runtime 获得 GitHub API 能力。查询、认领、创建 PR 与 branch protection 仍由
+人类、`gh`、Coordinate 或其他既有工具完成；EXharness 只规定可恢复的协作协议。
+
 Canonical plan locator：一个 item 只有一个语义答案（`plan_path` 或 `artifacts.plan` 之一，或两者标准化后相同）；冲突时 fail closed，不静默选择。没有 locator 时 activation 可以 scaffold 默认
 `tasks/<id>/plan.md`；已有 locator 但文件缺失时 fail closed，不偷偷重建。Standalone 允许 operator
 在 checklist 中明确选择 external absolute plan locator（repo-local 协议 + 外部 task artifact root 的

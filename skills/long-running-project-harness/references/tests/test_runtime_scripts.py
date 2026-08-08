@@ -741,6 +741,46 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertIn("already exists", result.stderr)
         self.assertEqual(len(self.read_checklist()["items"]), 1)
 
+    def test_github_issue_id_uses_existing_item_lifecycle(self) -> None:
+        """GitHub-backed projects reuse issue-N as the item identity; no
+        second schema or lifecycle is needed."""
+        self.write_checklist([])
+
+        added = self.run_harness(
+            "add-item",
+            "issue-123",
+            "--title",
+            "Resolve GitHub Issue #123",
+            "--acceptance",
+            "Tests pass and the associated PR closes #123.",
+        )
+        self.assertEqual(added.returncode, 0, added.stderr)
+
+        started = self.run_harness("start", "issue-123", "codex", "session-123")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        item = self.read_checklist()["items"][0]
+        self.assertEqual(item["id"], "issue-123")
+        self.assertEqual(item["workflow"]["branch"], "agent/codex/issue-123")
+        self.assertEqual(item["artifacts"]["branch"], "agent/codex/issue-123")
+
+        duplicate = self.run_harness(
+            "add-item",
+            "issue-123",
+            "--title",
+            "Conflicting meaning",
+            "--acceptance",
+            "Must not replace the claimed Issue identity.",
+        )
+        self.assertNotEqual(duplicate.returncode, 0)
+        self.assertIn("already exists", duplicate.stderr)
+
+        # A textual Git merge may still produce duplicate JSON objects.
+        # The merge candidate must therefore pass the checklist validator.
+        self.write_checklist([base_item("issue-123"), base_item("issue-123")])
+        merged = self.run_harness("validate")
+        self.assertNotEqual(merged.returncode, 0)
+        self.assertIn("duplicate id", merged.stderr)
+
     def test_add_item_rejects_unknown_and_self_dependency(self) -> None:
         self.write_checklist([base_item("mvp-001")])
 

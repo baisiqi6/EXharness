@@ -124,7 +124,7 @@ def main() -> int:
 4. 如果不能 done，最关键的剩余工作是什么
 """
 
-    write_text(packet_path, body + "\n")
+    write_text(packet_path, body.rstrip() + "\n")
 
     def callback(candidate: dict) -> None:
         item = require_item(candidate, args.item)

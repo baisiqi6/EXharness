@@ -357,6 +357,12 @@ class HarnessRuntimeTests(unittest.TestCase):
         closeout = self.run_harness("closeout", "mvp-001", "reviewer")
         self.assertEqual(closeout.returncode, 0, closeout.stderr)
 
+        packet = (self.harness / "current" / "closeout-packet.md").read_bytes()
+        self.assertTrue(packet.endswith(b"\n"))
+        self.assertFalse(packet.endswith(b"\n\n"))
+        for question in range(1, 5):
+            self.assertIn(f"{question}. ".encode(), packet)
+
         denied = self.run_harness("mark-done", "mvp-001", "operator")
         self.assertNotEqual(denied.returncode, 0)
         self.assertIn("requires review.decision == approved", denied.stderr)

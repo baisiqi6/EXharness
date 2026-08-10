@@ -226,6 +226,19 @@ writer 时使用 path-scoped commit 即可；多个项目同时写入时，为�
 
 **关键**：本 skill 不绑定任何一种 runtime 实现。用户可以只用最轻的 subagent，也可以组合多种。选择依据是任务复杂度、是否跨 agent 生态、是否跨主机——而不是本 skill 的要求。本 skill 的职责始终只是：让协议事实落盘、可恢复、可审计。
 
+### 递归委派与局部 Operator
+
+主 Operator 可以把边界清晰的 dogfood 小修、ordinary 小任务或主线之外的独立任务线委派给
+subagent，让它在该范围内充当局部 Operator。局部 Operator 可以直接完成很小的修改，也可以按需调用
+worker/reviewer，并在交付前先核对实现、测试和任务线状态；是否增加独立 reviewer 由风险、改动范围和
+可逆性决定，不把每个小任务机械升级成完整仪式。
+
+局部 Operator 是一次有界委派，不是新的持久角色或第三套 workflow。它只能继承明确授予的任务范围，
+不能自行扩大 merge、deploy、生产 mutation 或其他 authority；每条并行任务线继续使用独立的
+Issue/item、session、branch/worktree 和持久 ID。主 Operator 最终核验实际 diff、tests、reviewer verdict、
+Git/runtime 状态与 authority 边界，而不是只接受下级摘要。递归层级只有在能减少主线阻塞或提高交叉验证
+质量时才增加；一个 agent 直接完成更简单时就不要委派。
+
 ## Mirror Rule
 
 - global skill 维护可泛化的项目协议和边界。

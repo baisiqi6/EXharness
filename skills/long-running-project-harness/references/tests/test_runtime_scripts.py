@@ -1197,6 +1197,14 @@ class HarnessRuntimeTests(unittest.TestCase):
                 hc._fsync_dir(self.harness)
         self.assertEqual(ctx.exception.errno, errno.EACCES)
 
+    def test_fsync_dir_windows_eacces_falls_back(self) -> None:
+        hc = self.load_harness_common()
+        with mock.patch.object(hc.os, "name", "nt"):
+            with mock.patch.object(
+                hc.os, "open", side_effect=OSError(errno.EACCES, "unsupported")
+            ):
+                hc._fsync_dir(self.harness)  # Windows cannot open directory fds
+
     def test_add_item_rejects_internal_dotdot_locator(self) -> None:
         self.write_checklist([base_item("mvp-001")])
 

@@ -211,7 +211,9 @@ def _fsync_dir(directory: Path) -> None:
     try:
         dir_fd = os.open(directory, os.O_RDONLY)
     except OSError as exc:
-        if exc.errno in _DIR_FSYNC_UNSUPPORTED_ERRNOS:
+        if exc.errno in _DIR_FSYNC_UNSUPPORTED_ERRNOS or (
+            os.name == "nt" and exc.errno == errno.EACCES
+        ):
             return  # controlled fallback: platform cannot open a directory fd
         raise
     try:

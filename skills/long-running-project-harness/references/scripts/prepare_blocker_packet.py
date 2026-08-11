@@ -96,7 +96,7 @@ def main() -> int:
 4. unblock owner 应该是谁：human、architect、implementer 或 reviewer
 """
 
-    write_text(packet_path, body + "\n")
+    write_text(packet_path, body.rstrip("\n") + "\n")
 
     def callback(candidate: dict) -> None:
         item = require_item(candidate, args.item)

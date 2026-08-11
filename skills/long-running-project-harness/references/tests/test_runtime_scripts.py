@@ -496,6 +496,10 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertIsNotNone(blocked_item["lease"].get("released_at"))
         self.assertEqual(blocked_item["workflow"]["unblock_owner"], "human")
 
+        packet_bytes = (self.harness / "current" / "blocker-packet.md").read_bytes()
+        self.assertTrue(packet_bytes.endswith(b"\n"))
+        self.assertFalse(packet_bytes.endswith(b"\n\n"))
+
         still_blocked = self.run_harness("accept", "mvp-001", "claude", "claude-1")
         self.assertNotEqual(still_blocked.returncode, 0)
         self.assertIn("is blocked", still_blocked.stderr)

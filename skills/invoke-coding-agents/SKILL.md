@@ -1,6 +1,6 @@
 ---
 name: invoke-coding-agents
-description: Invoke, supervise, resume, and verify local external coding-agent CLIs such as Claude Code, Qoder CLI, Grok Build, Oh My Pi (OMP), OpenCode, and Codex CLI. Use when delegating implementation, plan review, code review, testing, or bounded research to another agent process; when a worker appears silent or stuck; when the actual provider/model mapping must be verified; or when multiple agent sessions must run without confusing projects, worktrees, or evidence.
+description: Invoke, supervise, resume, and verify local external coding-agent CLIs such as Claude Code, Qoder CLI, ZCode, Grok Build, Oh My Pi (OMP), OpenCode, and Codex CLI. Use when delegating implementation, plan review, code review, testing, or bounded research to another agent process; when a worker appears silent or stuck; when the actual provider/model mapping must be verified; or when multiple agent sessions must run without confusing projects, worktrees, or evidence.
 ---
 
 # Invoke Coding Agents
@@ -50,6 +50,7 @@ description: Invoke, supervise, resume, and verify local external coding-agent C
 只加载当前要调用的 reference：
 
 - Qoder CLI：读取 [qoder.md](references/qoder.md)。
+- ZCode：读取 [zcode.md](references/zcode.md)。
 - Claude Code / CC Switch：读取 [claude-code.md](references/claude-code.md)。
 - Grok Build CLI：读取 [grok.md](references/grok.md)。
 - Oh My Pi / OMP：读取 [omp.md](references/omp.md)。

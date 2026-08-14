@@ -26,7 +26,7 @@
 
 ### `invoke-coding-agents` — agent 调用与监督方法
 
-教 agent 如何用 stdio 调起、监督、恢复和验收本地外部 coding agent CLI（Claude Code、Qoder、Grok Build、OMP、OpenCode、Codex 等）。
+教 agent 如何用 stdio 调起、监督、恢复和验收本地外部 coding agent CLI（Claude Code、Qoder、ZCode、Grok Build、OMP、OpenCode、Codex 等）。
 
 核心能力：
 
@@ -44,7 +44,7 @@
 `long-running-project-harness` 常见的 runtime 实现从轻到重：
 
 - **当前 agent 自身的 subagent**（最轻量）：如果任务只用当前这一种 agent 就能完成、不跨 agent 生态，直接用 agent 自带的 subagent 能力推进，不需要任何外部 skill 或服务。harness 只负责把状态和交接记录落盘。
-- **`invoke-coding-agents` skill**：当任务需要调用当前 agent 之外的 coding agent（Claude Code / Qoder / OMP / Codex 等），用它把外部 agent 拉起来、监督和验收。
+- **`invoke-coding-agents` skill**：当任务需要调用当前 agent 之外的 coding agent（Claude Code / Qoder / ZCode / OMP / Codex 等），用它把外部 agent 拉起来、监督和验收。
 - **多 agent 编排 workflow 引擎**：用声明式 workflow 编排多个 agent_call 节点，把多 agent 协作变成可审计、可恢复的 workflow（如 Composia 这类项目）。
 - **Coordinate 控制面**：需要 durable job、事件、lease、审查记录和恢复，但由当前 agent、Operator
   或已有 runner 主动执行任务时使用。

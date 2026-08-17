@@ -15,6 +15,22 @@ description: Invoke, supervise, resume, and verify local external coding-agent C
 
 普通任务不要机械套用高风险仪式。高风险任务也不能因为 provider 支持 `auto`、`yolo` 或 bypass 权限就跳过 gate。
 
+## Reviewer 上下文策略
+
+Reviewer 与 Worker 的 session 和 mutation authority 必须独立，但“独立”不等于每次修订都
+机械创建全新 Reviewer：
+
+- 连续验证上一轮修复时，恢复同一个 Reviewer session，保留问题演进，并要求重新读取当前
+  diff、代码和证据。
+- 存在明显锚定风险、争议判断、架构转向或高风险最终 closeout 时，创建上下文更纯净的
+  Reviewer session。
+- 一般最终 closeout 优先使用 `limited-fresh`：只传底层目标、canonical plan、当前代码与
+  diff、non-goals 和必要证据，不传前几轮 verdict 或已被取代的审查叙事。
+
+本 skill 只负责 provider、session 与上下文打包；采用 EXharness 时，审查内容遵循
+[reviewer-strategy.md](../long-running-project-harness/references/reviewer-strategy.md)。无论复用还是刷新 session，
+都要从 provider-native evidence 核验实际 agent/session/model，且不会因此扩大 Reviewer authority。
+
 ## 调用流程
 
 1. **实时发现**

@@ -86,7 +86,8 @@ task spec -> worker -> independent reviewer -> tests
 ```
 
 - worker 负责实现，并对正确性、边界和验证负责。
-- independent reviewer 负责验证是否满足验收、是否越界、测试是否充分。
+- independent reviewer 负责验证是否满足验收、是否越界、测试是否充分。独立不等于每轮
+  都必须使用全新上下文；按审查目的选择 `continuity`、`fresh` 或 `limited-fresh`。
 - tests 是最终质量护栏。
 
 Ordinary 模式**不强制**：checklist item、owner/session lease、`events.jsonl`、handoff/review/closeout/blocker packet、runtime harness / session-init。
@@ -356,7 +357,10 @@ python3 "$CLAUDE_SKILL_DIR/scripts/validate-checklist.py" path/to/checklist.json
   Discord/KOOK。不替 agent accept，也不替 reviewer 做审查判断。
 - Architect：把产品目标拆成可由单个 coding session 完成的 item；维护 architecture、domain model、task plan 和边界。
 - Coding agent：消费已分配或已激活的 item；由目标 agent 发起 `accept` 或 `decline`；在 scope 内实现、验证、写 handoff；默认不自行扩大范围，不直接 mark done。
-- Reviewer：审查 plan/result 是否满足 acceptance、是否越界、验证是否充分；由 reviewer 发起 `review-result approved|changes_requested|blocked`。
+- Reviewer：审查 plan/result 是否满足 acceptance、是否越界、验证是否充分，并回到真实
+  问题、产品目标和最小机制判断实现；由 reviewer 发起
+  `review-result approved|changes_requested|blocked`。上下文选择与审查方法见
+  [reviewer-strategy.md](references/reviewer-strategy.md)。
 - Human：决定产品方向、范围扩大和高风险 authority；可以给出有界持久授权。
   Operator 只能在该授权覆盖的目标、范围和时限内执行，且不能省略安全 gate。
 
@@ -550,7 +554,8 @@ active canonical plan 的写位置按部署形态区分：
 `<artifact-root>/current/task_plan.md` 只负责告诉下一个 session“现在正在执行哪一个计划文件”，是指针/恢复缓存。
 split layout 尚未被当前 coordinator 原生支持时，保留 repo-local 兼容 locator，不制造两份 plan 正文。
 
-模板见 [task-plan-template.md](references/task-plan-template.md)、[blocker-template.md](references/blocker-template.md)、[review-template.md](references/review-template.md)。
+模板见 [task-plan-template.md](references/task-plan-template.md)、[blocker-template.md](references/blocker-template.md)、[review-template.md](references/review-template.md)。使用 review 模板前先读
+[reviewer-strategy.md](references/reviewer-strategy.md)；模板只是输出结构，不是机械 checklist。
 
 ## 任务开始规则
 

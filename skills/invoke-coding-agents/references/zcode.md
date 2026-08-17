@@ -28,7 +28,9 @@ fi
 
 ## 独立 reviewer
 
-ZCode 的 headless `--prompt` 默认 permission mode 是 `yolo`。只读 review 必须显式选择更窄的 mode 和 tools；默认使用新 session，不恢复 worker session：
+ZCode 的 headless `--prompt` 默认 permission mode 是 `yolo`。首次独立 review 使用新 session，
+绝不恢复 worker session；后续若选择 `continuity`，只能恢复这个 Reviewer 自己的精确 session。
+只读 review 必须显式选择更窄的 mode 和 tools：
 
 ```bash
 ZCODE_JS="${ZCODE_JS:-/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs}"

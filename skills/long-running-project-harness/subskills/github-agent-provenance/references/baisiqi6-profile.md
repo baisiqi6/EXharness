@@ -25,6 +25,22 @@
 Reviewer 可以额外写 `model`，但只有 provider-native transcript 已核验时才能写实际模型。通过
 CC Switch 或其他代理路由时，UI 上的 `Opus`、`Sonnet` 等名称不能替代实际 provider/model 证据。
 
+## 来源项目标签
+
+当 Issue 或 PR 是另一个项目 dogfood / 开发过程产生的反馈时，账号 `baisiqi6` 可以增加
+`source:<project-slug>` GitHub label，提供可检索的来源项目维度。正文仍使用 `acting_for` 写人类可读
+来源，不为此增加重复的通用 provenance 字段。
+
+- project slug 使用稳定的小写名称，例如 DevScope 使用 `source:devscope`。
+- source label 只表示反馈来自哪个项目，不表示 Issue ownership、当前 assignee 或 mutation authority。
+- 只在来源项目已确认时添加；不从仓库路径、宿主机或 Agent 名称猜测。
+- 这是账号 `baisiqi6` 的自用 GitHub taxonomy。其他用户可以借鉴，也可以使用自己的 label 规则或
+  完全不使用 source label。
+
+当前已确认：
+
+- `source:devscope`：来自 DevScope 项目开发或 dogfood 的反馈。
+
 ## 可直接使用的示例
 
 本次 DevScope dogfood 反馈：
@@ -32,6 +48,8 @@ CC Switch 或其他代理路由时，UI 上的 `Opus`、`Sonnet` 等名称不能
 ```markdown
 > **Agent provenance:** `Mac Max / ZCode` · role=`Reporter` · acting_for=`DevScope Operator`
 ```
+
+GitHub label：`source:devscope`
 
 EXharness 维护者回复：
 

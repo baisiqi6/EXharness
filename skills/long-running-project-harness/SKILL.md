@@ -492,6 +492,13 @@ duplicate ID；同一 ID 若 title、acceptance 或计划语义不同，必须 f
 这个 profile 不让本地 runtime 获得 GitHub API 能力。查询、认领、创建 PR 与 branch protection 仍由
 人类、`gh`、Coordinate 或其他既有工具完成；EXharness 只规定可恢复的协作协议。
 
+如果 GitHub Issue、PR、review 或 comment 由 Agent 代表项目 Operator 起草、审查或发布，仅靠
+GitHub 账号无法区分实际来源。此时按需读取
+[GitHub agent provenance 子 skill](subskills/github-agent-provenance/SKILL.md)，记录
+`host / agent / role / acting_for`，并把内容来源与最终 mutation authority 分开。私有 task receipt
+保存详细执行链，但不能替代公开内容中的最小 provenance；只有人类直接写作或任务与 GitHub 无关时
+才不加载这个子 skill。
+
 Canonical plan locator：一个 item 只有一个语义答案（`plan_path` 或 `artifacts.plan` 之一，或两者标准化后相同）；冲突时 fail closed，不静默选择。没有 locator 时 activation 可以 scaffold 默认
 `tasks/<id>/plan.md`；已有 locator 但文件缺失时 fail closed，不偷偷重建。Standalone 允许 operator
 在 checklist 中明确选择 external absolute plan locator（repo-local 协议 + 外部 task artifact root 的

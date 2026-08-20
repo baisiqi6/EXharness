@@ -130,7 +130,7 @@ tasks/
 {
   "project": "project-name",
   "harness_root": "docs/project-harness",
-  "updated_at": "YYYY-MM-DD",
+  "updated_at": "YYYY-MM-DDTHH:MM:SSZ",
   "items": [
     {
       "id": "mvp-001",
@@ -139,7 +139,7 @@ tasks/
       "priority": "p0",
       "owner": null,
       "selected_in_session": null,
-      "updated_at": "YYYY-MM-DD",
+      "updated_at": "YYYY-MM-DDTHH:MM:SSZ",
       "dependencies": [],
       "blocked_by": [],
       "blocked_reason": null,
@@ -148,7 +148,7 @@ tasks/
       "handoff": "Start by comparing the documented model to exported core types.",
       "workflow": {
         "status": "todo",
-        "updated_at": "YYYY-MM-DD"
+        "updated_at": "YYYY-MM-DDTHH:MM:SSZ"
       },
       "lease": null,
       "artifacts": {},

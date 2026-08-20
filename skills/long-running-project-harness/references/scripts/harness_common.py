@@ -77,10 +77,6 @@ def iso_z(value: datetime | None = None) -> str:
     return (value or utc_now()).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def today() -> str:
-    return utc_now().date().isoformat()
-
-
 def parse_time(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
@@ -424,7 +420,7 @@ def mutate_checklist(
 
     candidate = deepcopy(current)
     callback(candidate)
-    candidate["updated_at"] = today()
+    candidate["updated_at"] = iso_z()
 
     errors, _ = validate_checklist(candidate)
     if errors:

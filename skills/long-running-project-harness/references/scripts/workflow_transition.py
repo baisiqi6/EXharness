@@ -25,7 +25,7 @@ from harness_common import (
     require_item,
     resolve_item_plan,
     sha256_bytes,
-    today,
+    iso_z,
     unfinished_dependencies,
     utc_now,
     ensure_artifacts,
@@ -108,9 +108,9 @@ def do_assign(args: argparse.Namespace) -> int:
 
         item["owner"] = args.owner
         item["selected_in_session"] = args.session
-        item["updated_at"] = today()
+        item["updated_at"] = iso_z()
         workflow["status"] = "assigned"
-        workflow["updated_at"] = today()
+        workflow["updated_at"] = iso_z()
         workflow["branch"] = branch
         artifacts["branch"] = branch
         claim_lease(item, args.owner, args.session, args.lease_minutes)
@@ -143,10 +143,10 @@ def do_accept(args: argparse.Namespace) -> int:
         item["status"] = "doing"
         item["owner"] = args.owner
         item["selected_in_session"] = args.session
-        item["updated_at"] = today()
+        item["updated_at"] = iso_z()
         workflow["status"] = "running"
         workflow.pop("handoff_target", None)
-        workflow["updated_at"] = today()
+        workflow["updated_at"] = iso_z()
         workflow["branch"] = branch
         artifacts["branch"] = branch
         claim_lease(item, args.owner, args.session, args.lease_minutes)
@@ -185,11 +185,11 @@ def do_decline(args: argparse.Namespace) -> int:
         item["status"] = "todo"
         item["owner"] = None
         item["selected_in_session"] = None
-        item["updated_at"] = today()
+        item["updated_at"] = iso_z()
         workflow["status"] = "released"
         workflow["declined_by"] = args.actor
         workflow["decline_reason"] = args.reason or args.summary or "Declined."
-        workflow["updated_at"] = today()
+        workflow["updated_at"] = iso_z()
         release_lease(item)
 
     mutate_checklist(callback)
@@ -216,7 +216,7 @@ def do_renew_lease(args: argparse.Namespace) -> int:
 
         item["owner"] = args.owner
         item["selected_in_session"] = args.session
-        item["updated_at"] = today()
+        item["updated_at"] = iso_z()
         claim_lease(item, args.owner, args.session, args.lease_minutes)
 
     mutate_checklist(callback)
@@ -249,9 +249,9 @@ def do_release(args: argparse.Namespace) -> int:
             item["status"] = "todo"
         item["owner"] = None
         item["selected_in_session"] = None
-        item["updated_at"] = today()
+        item["updated_at"] = iso_z()
         workflow["status"] = "released"
-        workflow["updated_at"] = today()
+        workflow["updated_at"] = iso_z()
         release_lease(item)
 
     mutate_checklist(callback)
@@ -287,11 +287,11 @@ def do_unblock(args: argparse.Namespace) -> int:
         item["status"] = "todo"
         item["blocked_reason"] = None
         item["blocked_by"] = []
-        item["updated_at"] = today()
+        item["updated_at"] = iso_z()
         workflow["status"] = "unblocked"
         workflow["unblocked_by"] = args.actor
         workflow["unblock_decision"] = args.decision
-        workflow["updated_at"] = today()
+        workflow["updated_at"] = iso_z()
         review["decision"] = None
         release_lease(item)
 
@@ -346,7 +346,7 @@ def do_review_result(args: argparse.Namespace) -> int:
         review["decision"] = args.decision
         review["reviewer"] = args.reviewer
         review["phase"] = previous_workflow_status
-        review["updated_at"] = today()
+        review["updated_at"] = iso_z()
         review["reviewed_packet_sha256"] = packet_hash
         review["source_plan_sha256"] = metadata["source_plan_sha256"]
         review["reviewed_packet_locator"] = rel(packet_path)
@@ -363,8 +363,8 @@ def do_review_result(args: argparse.Namespace) -> int:
             item["status"] = "blocked"
             item["blocked_reason"] = args.summary or "Reviewer blocked this item."
             workflow["status"] = "blocked"
-        workflow["updated_at"] = today()
-        item["updated_at"] = today()
+        workflow["updated_at"] = iso_z()
+        item["updated_at"] = iso_z()
 
     committed = mutate_checklist(callback)
     committed_item = require_item(committed, args.item)
@@ -441,9 +441,9 @@ def do_mark_done(args: argparse.Namespace) -> int:
             item["verification"] = args.verification
 
         item["status"] = "done"
-        item["updated_at"] = today()
+        item["updated_at"] = iso_z()
         workflow["status"] = "closed"
-        workflow["updated_at"] = today()
+        workflow["updated_at"] = iso_z()
         release_lease(item)
         item["owner"] = None
         item["selected_in_session"] = None

@@ -13,10 +13,10 @@
     "status": "doing",
     "owner": "codex",
     "selected_in_session": "codex-2026-05-08-node-handlers",
-    "updated_at": "YYYY-MM-DD",
+    "updated_at": "YYYY-MM-DDTHH:MM:SSZ",
     "workflow": {
       "status": "running",
-      "updated_at": "YYYY-MM-DD"
+      "updated_at": "YYYY-MM-DDTHH:MM:SSZ"
     },
     "lease": {
       "owner": "codex",

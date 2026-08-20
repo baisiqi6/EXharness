@@ -2417,5 +2417,158 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertNotIn("WARN", validated.stdout)
 
 
+    UTC_TIMESTAMP = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
+
+    def assert_utc_timestamp(self, value: object) -> None:
+        self.assertIsInstance(value, str)
+        self.assertRegex(value, self.UTC_TIMESTAMP)
+
+    def test_validator_accepts_full_utc_timestamps(self) -> None:
+        checklist = {
+            "project": "utc",
+            "harness_root": "docs/project-harness",
+            "updated_at": "2026-05-12T09:30:00Z",
+            "items": [
+                base_item(
+                    "mvp-001",
+                    "doing",
+                    owner="codex",
+                    selected_in_session="codex-1",
+                    updated_at="2026-05-12T09:30:00Z",
+                    workflow={"status": "running", "updated_at": "2026-05-12T09:30:00Z"},
+                )
+            ],
+        }
+        path = self.project / "utc.json"
+        write_json(path, checklist)
+
+        result = subprocess.run(
+            [sys.executable, str(SKILL_DIR / "scripts" / "validate-checklist.py"), str(path)],
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_add_item_writes_full_utc_timestamps(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+
+        result = self.run_harness("add-item", "mvp-002", "--title", "T", "--acceptance", "A.")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        checklist = self.read_checklist()
+        self.assert_utc_timestamp(checklist["updated_at"])
+        added = next(entry for entry in checklist["items"] if entry["id"] == "mvp-002")
+        self.assert_utc_timestamp(added["updated_at"])
+        # Untouched legacy item is not rewritten by the mutation.
+        self.assertEqual(checklist["items"][0]["updated_at"], "2026-05-12")
+
+    def test_start_writes_full_utc_timestamps(self) -> None:
+        self.seed_item()
+
+        result = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        item = self.read_checklist()["items"][0]
+        self.assert_utc_timestamp(item["updated_at"])
+        self.assert_utc_timestamp(item["workflow"]["updated_at"])
+        self.assert_utc_timestamp(self.read_checklist()["updated_at"])
+
+    def test_activate_scaffold_plan_uses_full_utc_timestamp(self) -> None:
+        # No plan file and no locator: activation scaffolds the default plan.
+        self.write_checklist([base_item("mvp-001")])
+
+        result = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        plan = (self.harness / "tasks" / "mvp-001" / "plan.md").read_text(encoding="utf-8")
+        self.assertRegex(plan, r"- Updated at: `\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z`")
+
+    def test_review_result_writes_full_utc_timestamps(self) -> None:
+        self.seed_item()
+        self.start_review()
+        packet_hash = self.sha("current/review-packet.md")
+
+        result = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+            "--summary", "OK.",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        item = self.read_checklist()["items"][0]
+        self.assert_utc_timestamp(item["review"]["updated_at"])
+        self.assert_utc_timestamp(item["updated_at"])
+        self.assert_utc_timestamp(item["workflow"]["updated_at"])
+
+    def test_packets_default_updated_at_to_full_utc_timestamp(self) -> None:
+        self.seed_item()
+
+        for command in ("review", "closeout", "handoff", "blocker"):
+            if command == "handoff":
+                result = self.run_harness(command, "mvp-001", "bob")
+            elif command == "blocker":
+                result = self.run_harness(command, "mvp-001")
+            else:
+                result = self.run_harness(command, "mvp-001", "reviewer")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            packet = (self.harness / "current" / f"{command}-packet.md").read_text(encoding="utf-8")
+            self.assertRegex(
+                packet,
+                r"- Updated at: `\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z`",
+                f"{command} packet should default Updated at to a UTC timestamp",
+            )
+
+    def test_packet_date_override_still_honored(self) -> None:
+        self.seed_item()
+
+        result = self.run_harness("handoff", "mvp-001", "bob", "--date", "2026-01-02")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        packet = (self.harness / "current" / "handoff-packet.md").read_text(encoding="utf-8")
+        self.assertIn("- Updated at: `2026-01-02`", packet)
+
+    def test_legacy_item_survives_unrelated_mutation(self) -> None:
+        # A lifecycle mutation on one legacy item upgrades root + that item to
+        # UTC; the untouched legacy item is not rewritten and the checklist
+        # stays readable by the validator.
+        self.write_checklist(
+            [
+                base_item("mvp-001"),
+                base_item("mvp-002"),
+            ]
+        )
+        self.write_plan("tasks/mvp-001/plan.md", "# Plan\n")
+
+        result = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        checklist = self.read_checklist()
+        self.assert_utc_timestamp(checklist["updated_at"])
+        self.assert_utc_timestamp(checklist["items"][0]["updated_at"])
+        self.assertEqual(checklist["items"][1]["updated_at"], "2026-05-12")
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+
+    def test_update_item_writes_full_utc_timestamps(self) -> None:
+        self.write_checklist(
+            [
+                base_item("mvp-001"),
+                base_item("mvp-002"),
+            ]
+        )
+
+        result = self.run_harness("update-item", "mvp-002", "--title", "Renamed")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        checklist = self.read_checklist()
+        self.assert_utc_timestamp(checklist["updated_at"])
+        self.assert_utc_timestamp(checklist["items"][1]["updated_at"])
+        # Untouched legacy item keeps its date-only value.
+        self.assertEqual(checklist["items"][0]["updated_at"], "2026-05-12")
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

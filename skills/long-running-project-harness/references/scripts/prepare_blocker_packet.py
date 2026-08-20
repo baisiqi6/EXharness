@@ -14,7 +14,7 @@ from harness_common import (
     release_lease,
     require_item,
     resolve_item_plan,
-    today,
+    iso_z,
     ensure_artifacts,
     ensure_workflow,
     write_text,
@@ -35,7 +35,7 @@ def main() -> int:
     parser.add_argument("--actor", default=None, help="Actor raising the blocker. Defaults to item owner.")
     parser.add_argument("--reason", default=None, help="Human-readable blocker reason override.")
     parser.add_argument("--unblock-owner", default="human", help="Who must decide how to unblock this item.")
-    parser.add_argument("--date", default=today(), help="ISO date override")
+    parser.add_argument("--date", default=None, help="Machine timestamp override (default: current UTC ISO-8601)")
     args = parser.parse_args()
 
     root = harness_root()
@@ -56,7 +56,7 @@ def main() -> int:
 - Checklist item: `{item["id"]}`
 - Owner: `{item.get("owner")}`
 - Session: `{item.get("selected_in_session")}`
-- Updated at: `{args.date}`
+- Updated at: `{args.date or iso_z()}`
 - Canonical plan path: `{rel(plan_path)}`
 - Unblock owner: `{args.unblock_owner}`
 
@@ -107,10 +107,10 @@ def main() -> int:
         item["blocked_reason"] = reason
         item["owner"] = None
         item["selected_in_session"] = None
-        item["updated_at"] = today()
+        item["updated_at"] = iso_z()
         workflow["status"] = "blocked"
         workflow["unblock_owner"] = args.unblock_owner
-        workflow["updated_at"] = today()
+        workflow["updated_at"] = iso_z()
         release_lease(item)
 
     mutate_checklist(callback)

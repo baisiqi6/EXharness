@@ -21,7 +21,6 @@ from harness_common import (
     require_item,
     resolve_item_plan,
     sha256_bytes,
-    today,
     ensure_artifacts,
     ensure_review,
     ensure_workflow,
@@ -33,7 +32,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Prepare a review packet for a checklist item.")
     parser.add_argument("--item", required=True, help="Checklist item id, e.g. mvp-003")
     parser.add_argument("--reviewer", default="TBD", help="Reviewer label")
-    parser.add_argument("--date", default=today(), help="ISO date override")
+    parser.add_argument("--date", default=None, help="Machine timestamp override (default: current UTC ISO-8601)")
     args = parser.parse_args()
 
     root = harness_root()
@@ -61,7 +60,7 @@ def main() -> int:
 
 - Checklist item: `{item["id"]}`
 - Reviewer: `{args.reviewer}`
-- Updated at: `{args.date}`
+- Updated at: `{args.date or iso_z()}`
 - Canonical plan path: `{rel(plan_path)}`
 
 ## Item Snapshot
@@ -116,8 +115,8 @@ def main() -> int:
         ensure_review(item)
         artifacts["review_packet"] = rel(packet_path)
         workflow["status"] = "review_requested"
-        workflow["updated_at"] = today()
-        item["updated_at"] = today()
+        workflow["updated_at"] = iso_z()
+        item["updated_at"] = iso_z()
 
     mutate_checklist(callback)
 

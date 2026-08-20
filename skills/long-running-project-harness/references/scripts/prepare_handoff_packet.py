@@ -14,7 +14,7 @@ from harness_common import (
     release_lease,
     require_item,
     resolve_item_plan,
-    today,
+    iso_z,
     ensure_artifacts,
     ensure_workflow,
     write_text,
@@ -27,7 +27,7 @@ def main() -> int:
     parser.add_argument("--target", required=True, help="Target owner/agent label")
     parser.add_argument("--actor", default="operator", help="Actor requesting the handoff")
     parser.add_argument("--reason", default="", help="Why the handoff is needed")
-    parser.add_argument("--date", default=today(), help="ISO date override")
+    parser.add_argument("--date", default=None, help="Machine timestamp override (default: current UTC ISO-8601)")
     args = parser.parse_args()
 
     root = harness_root()
@@ -50,7 +50,7 @@ def main() -> int:
 - From: `{item.get("owner")}`
 - To: `{args.target}`
 - Requested by: `{args.actor}`
-- Updated at: `{args.date}`
+- Updated at: `{args.date or iso_z()}`
 - Reason: {args.reason or "Not specified."}
 - Canonical plan path: `{rel(plan_path)}`
 
@@ -105,12 +105,12 @@ def main() -> int:
         workflow["status"] = "handoff_requested"
         workflow["handoff_from"] = previous_owner
         workflow["handoff_target"] = args.target
-        workflow["updated_at"] = today()
+        workflow["updated_at"] = iso_z()
         release_lease(item)
         item["status"] = "todo"
         item["owner"] = None
         item["selected_in_session"] = None
-        item["updated_at"] = today()
+        item["updated_at"] = iso_z()
 
     mutate_checklist(callback)
 

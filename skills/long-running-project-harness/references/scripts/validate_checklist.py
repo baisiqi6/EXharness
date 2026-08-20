@@ -35,6 +35,7 @@ ALLOWED_WORKFLOW_STATUSES = {
     "closed",
 }
 ALLOWED_REVIEW_DECISIONS = {None, "approved", "changes_requested", "blocked"}
+WORKFLOW_MODES = {"ordinary", "high-risk"}
 
 TOP_REQUIRED = {
     "project",
@@ -79,7 +80,36 @@ def validate_optional_workflow(item: dict[str, Any], label: str) -> tuple[list[s
     if not isinstance(workflow, dict):
         return [f"{label} optional field 'workflow' must be an object when present"], warnings
 
+    if "mode" in workflow and workflow.get("mode") not in WORKFLOW_MODES:
+        errors.append(
+            f"{label} workflow.mode must be one of "
+            f"{sorted(WORKFLOW_MODES)}, got {workflow.get('mode')!r}"
+        )
+
     status = workflow.get("status")
+    if status is None:
+        # Narrow mode-only opening (issue #9): a workflow without lifecycle
+        # status is only allowed for an explicit pre-start classification -
+        # coarse status todo and the key set exactly {mode}. workflow={},
+        # doing + mode-only, or mode plus any other lifecycle field without
+        # status are all rejected; the lifecycle schema is not relaxed.
+        if "mode" not in workflow:
+            errors.append(
+                f"{label} workflow without 'status' must carry exactly 'mode', "
+                f"got keys {sorted(workflow)}"
+            )
+        elif set(workflow) != {"mode"}:
+            errors.append(
+                f"{label} mode-only workflow may only carry 'mode', "
+                f"got keys {sorted(workflow)}"
+            )
+        elif item.get("status") != "todo":
+            errors.append(
+                f"{label} mode-only workflow requires coarse status 'todo', "
+                f"got {item.get('status')!r}"
+            )
+        return errors, warnings
+
     if status not in ALLOWED_WORKFLOW_STATUSES:
         errors.append(
             f"{label} workflow.status must be one of "

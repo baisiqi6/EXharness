@@ -19,11 +19,17 @@ Usage: {{SCRIPTS_DIR}}/harnessctl <command> [options]
 Checklist item commands:
   add-item <id> --title TEXT --acceptance TEXT
                  [--priority p0|p1|p2] [--plan PATH] [--dependency ID]... [--handoff TEXT]
-                               Register a new todo checklist item (no plan scaffold)
+                 [--mode ordinary|high-risk]
+                               Register a new todo checklist item (no plan scaffold);
+                               --mode writes an explicit mode-only workflow
   update-item <id> [--title TEXT] [--acceptance TEXT] [--priority p0|p1|p2]
                  [--plan PATH] [--verification TEXT] [--handoff TEXT]
                  [--add-dependency ID]... [--remove-dependency ID]...
-                               Update allowed fields of an existing item
+                 [--mode ordinary|high-risk]
+                               Update allowed fields of an existing item;
+                               --mode is the sole workflow.mode transition (upgrade
+                               to high-risk, or pre-start classification of a legacy
+                               item as ordinary; downgrades/no-ops/done rejected)
   migrate-checklist [--ack-managed-profile]
                                Rename mvp-checklist.json to harness-checklist.json
 

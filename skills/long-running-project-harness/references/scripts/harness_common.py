@@ -26,6 +26,7 @@ DEFAULT_LEASE_TTL_MINUTES = 120
 CHECKLIST_NEW_NAME = "harness-checklist.json"
 CHECKLIST_LEGACY_NAME = "mvp-checklist.json"
 ALLOWED_DEPLOYMENT_PROFILES = {"standalone", "coordinate-managed"}
+WORKFLOW_MODES = {"ordinary", "high-risk"}
 
 # Derived-artifact freshness contract (issue #7): verdict packets and the
 # current pointer carry this fixed metadata section at the top, before the
@@ -39,6 +40,11 @@ FRESHNESS_FIELDS = (
     "canonical_plan_path",
     "checklist_item",
 )
+
+# Verdict packet plan section (issue #9): high-risk embeds the full plan
+# snapshot; ordinary omits the plan body and points at the canonical
+# locator. Both review and closeout packets must share this single helper.
+PLAN_SECTION_HEADING = "## Canonical Plan Content"
 
 # errno values that unambiguously mean "this platform cannot open/fsync a
 # directory fd". Ordinary I/O errors (EACCES, EIO, EBADF, ENOENT, ...) must
@@ -280,44 +286,87 @@ def render_plan_snapshot(plan_text: str) -> str:
     return f"{fence}md\n{rendered}\n{fence}"
 
 
-def plan_snapshot(text: str) -> str | None:
+def render_packet_plan_section(item: dict[str, Any], plan_text: str) -> str:
+    """Shared verdict-packet plan section (issue #9): high-risk embeds the
+    deterministic full snapshot; ordinary deliberately omits the plan body
+    and points the reviewer at the canonical plan (metadata carries the
+    locator). The packet always states the effective mode separately."""
+    if effective_workflow_mode(item) == "ordinary":
+        return (
+            f"{PLAN_SECTION_HEADING}\n\n"
+            "plan body omitted (workflow.mode=ordinary); read the canonical "
+            "plan at the locator above before reviewing.\n"
+        )
+    return f"{PLAN_SECTION_HEADING}\n\n{render_plan_snapshot(plan_text)}"
+
+
+# Sentinel returned by plan_snapshot for an ambiguous canonical-plan
+# section: more than one ## Canonical Plan Content heading in the packet
+# body. Callers must fail closed (never treat it as "no snapshot").
+PLAN_SECTION_DUPLICATE = object()
+
+
+def plan_snapshot(text: str) -> str | None | object:
     """Content of the canonical plan snapshot inside a verdict packet.
 
-    The unique `## Canonical Plan Content` heading is located first; only
-    the text after it is scanned for the generated opening fence and its
-    exact same-length closing fence. Fenced blocks in Acceptance /
-    Verification / Handoff that legitimately precede the heading are never
-    mistaken for the snapshot, and inner plan fences shorter than the
-    framing fence never truncate it. A missing heading/fence pair yields
-    None so the caller fails closed.
+    The unique `## Canonical Plan Content` heading is located first (only
+    headings OUTSIDE fenced blocks count, so a plan body inside the snapshot
+    cannot create a fake second section). More than one such heading returns
+    PLAN_SECTION_DUPLICATE. The scan then stays inside that one section:
+    body prose (the ordinary lightweight note) is skipped, and the FIRST
+    fenced block within the section - before the next `## ` heading - is
+    parsed as the snapshot, so a stale fence appended after the note is
+    still validated. The scan never crosses into a following H2 section.
+    Fenced blocks before the heading are never mistaken for the snapshot;
+    inner plan fences shorter than the framing fence never truncate it.
+    None means the section carries no fenced snapshot (legitimate for
+    ordinary lightweight packets, fail-closed for high-risk).
     """
     lines = text.splitlines()
-    heading = next(
-        (
-            index
-            for index, line in enumerate(lines)
-            if line.strip() == "## Canonical Plan Content"
-        ),
-        None,
-    )
-    if heading is None:
+
+    # Pass 1: heading lines outside fenced blocks, with fence-state tracking
+    # that honors the framing fence run (inner plan fences cannot reopen).
+    headings: list[int] = []
+    in_fence = False
+    fence_run = 0
+    for index, line in enumerate(lines):
+        if in_fence:
+            if line == "`" * fence_run:
+                in_fence = False
+            continue
+        if line.startswith("```"):
+            in_fence = True
+            fence_run = len(line) - len(line.lstrip("`"))
+            continue
+        if line.strip() == PLAN_SECTION_HEADING:
+            headings.append(index)
+    if not headings:
         return None
-    start = next(
-        (
-            index
-            for index in range(heading + 1, len(lines))
-            if lines[index].startswith("```")
-        ),
-        None,
-    )
-    if start is None:
-        return None
-    opening = lines[start]
-    run = len(opening) - len(opening.lstrip("`"))
-    closing = "`" * run
-    for end in range(start + 1, len(lines)):
-        if lines[end] == closing:
-            return "\n".join(lines[start + 1 : end])
+    if len(headings) > 1:
+        return PLAN_SECTION_DUPLICATE
+    heading = headings[0]
+
+    # Pass 2: first fenced block inside the section (heading .. next H2
+    # outside a fence); prose in between is skipped.
+    in_fence = False
+    fence_run = 0
+    fence_start = -1
+    for index in range(heading + 1, len(lines)):
+        line = lines[index]
+        if in_fence:
+            if line == "`" * fence_run:
+                return "\n".join(lines[fence_start + 1 : index])
+            continue
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("## "):
+            return None
+        if line.startswith("```"):
+            fence_start = index
+            fence_run = len(line) - len(line.lstrip("`"))
+            in_fence = True
+            continue
     return None
 
 
@@ -644,14 +693,19 @@ def packet_freshness_problems(
     workflow_status: str | None,
     reviewer_hash: str | None = None,
 ) -> list[str]:
-    """Shared verdict-packet freshness checks (D2-D5).
+    """Shared verdict-packet freshness checks (D2-D5, issue #9 mode-aware).
 
     Checks the phase-bound packet locator, readability, exact-bytes binding
     when `reviewer_hash` is provided, the bounded freshness metadata, item
     and plan locator identity, source plan hash, and the embedded plan
-    snapshot render. Returns problems (empty means fresh); never mutates
-    the checklist. `reviewer_hash` is the hash the reviewer computed over
-    the exact packet bytes they read; None skips byte binding (validate).
+    snapshot render. The snapshot is required for high-risk (missing fails
+    closed, so an ordinary lightweight packet fails after an upgrade);
+    ordinary allows a missing snapshot but still validates one that is
+    present anywhere inside the canonical-plan section. Duplicate
+    canonical-plan headings fail closed in both modes. Returns problems
+    (empty means fresh); never mutates the checklist. `reviewer_hash` is
+    the hash the reviewer computed over the exact packet bytes they read;
+    None skips byte binding (validate).
     """
     label = f"item {item.get('id')!r}"
     if reviewer_hash is not None and re.fullmatch(r"[0-9a-fA-F]{64}", reviewer_hash) is None:
@@ -724,9 +778,25 @@ def packet_freshness_problems(
             "canonical plan; the plan changed after packet generation"
         )
     snapshot = plan_snapshot(packet_text)
-    if snapshot is None:
-        problems.append(f"{label} packet has no fenced canonical plan snapshot")
-    elif snapshot != plan_render:
+    if snapshot is PLAN_SECTION_DUPLICATE:
+        problems.append(
+            f"{label} packet has duplicate {PLAN_SECTION_HEADING} sections; "
+            "regenerate the packet and re-review"
+        )
+    elif effective_workflow_mode(item) == "high-risk":
+        if snapshot is None:
+            problems.append(f"{label} packet has no fenced canonical plan snapshot")
+        elif snapshot != plan_render:
+            problems.append(
+                f"{label} packet plan snapshot does not match the current canonical "
+                "plan render; the plan changed after packet generation"
+            )
+    elif snapshot is not None and snapshot != plan_render:
+        # ordinary lightweight packets legitimately omit the plan body; the
+        # snapshot is optional. A snapshot that IS present (including one
+        # appended after the note, inside the same section) is still
+        # checked, so a stale/wrong snapshot in an ordinary packet never
+        # passes.
         problems.append(
             f"{label} packet plan snapshot does not match the current canonical "
             "plan render; the plan changed after packet generation"
@@ -1063,6 +1133,17 @@ def default_workflow_status(item: dict[str, Any]) -> str:
     if status == "blocked":
         return "blocked"
     return "todo"
+
+
+def effective_workflow_mode(item: dict[str, Any]) -> str:
+    """Single effective-mode answer (issue #9): only an explicit
+    workflow.mode == 'ordinary' classifies as ordinary; a missing workflow,
+    a missing mode, or any other value fails closed to high-risk. Runtime
+    never guesses a third mode."""
+    workflow = item.get("workflow")
+    if isinstance(workflow, dict) and workflow.get("mode") == "ordinary":
+        return "ordinary"
+    return "high-risk"
 
 
 def ensure_workflow(item: dict[str, Any]) -> dict[str, Any]:

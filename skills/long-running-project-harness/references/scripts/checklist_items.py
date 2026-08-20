@@ -28,6 +28,7 @@ from harness_common import (
     deployment_profile,
     require_standalone_mutation,
     validate_checklist,
+    ensure_workflow,
     _fsync_dir,
 )
 
@@ -48,6 +49,70 @@ def validate_plan_argument(raw: str) -> str:
     if not (os.path.isfile(candidate) and os.access(candidate, os.R_OK)):
         fail(f"--plan file not found or not readable: {candidate}")
     return path if os.path.isabs(path) else os.path.relpath(candidate, str(project_root()))
+
+
+def _apply_mode_transition(item: dict, new_mode: str) -> None:
+    """D2: the single mode transition rule set for update-item --mode.
+
+    Allowed:
+    - explicit `ordinary` -> `high-risk` (any non-done status);
+    - legacy missing mode -> explicit `high-risk`;
+    - legacy missing mode on an item that has not started (coarse `todo`,
+      workflow status missing or `todo`) -> explicit `ordinary`.
+
+    Rejected (all keep the original bytes untouched):
+    - explicit `high-risk` -> `ordinary` (downgrade);
+    - started/released/blocked/review/closed legacy item -> `ordinary`;
+    - same explicit mode (no-op);
+    - any transition on a `done` item.
+
+    A mode mutation always refreshes the item `updated_at` (caller does it);
+    `workflow.updated_at` is refreshed only when the workflow already carries
+    a lifecycle `status`. A mode-only workflow keeps exactly `{mode}` - no
+    timestamp/status is invented; the first lifecycle entry is initialized
+    by the existing ensure_workflow. Unknown compatible workflow fields are
+    preserved. This is a monotonic upgrade boundary, not a risk engine.
+    """
+    label = f"item {item.get('id')!r}"
+    if item.get("status") == "done":
+        fail(f"{label} is done; workflow mode cannot be changed")
+    workflow = item.get("workflow")
+    workflow_dict = workflow if isinstance(workflow, dict) else {}
+    explicit_mode = workflow_dict.get("mode")
+    explicit = "mode" in workflow_dict
+    if explicit and explicit_mode == new_mode:
+        fail(
+            f"{label} workflow.mode is already {new_mode!r}; "
+            "no-op mode transitions are rejected"
+        )
+    if new_mode == "ordinary":
+        if explicit:
+            fail(
+                f"{label} has explicit workflow.mode {explicit_mode!r}; "
+                "downgrade from high-risk to ordinary is not allowed"
+            )
+        workflow_status = workflow_dict.get("status")
+        if item.get("status") != "todo" or (
+            workflow_status is not None and workflow_status != "todo"
+        ):
+            fail(
+                f"{label} is a legacy item without an explicit mode that has "
+                "already started; only items that have not started (coarse "
+                "todo, workflow status missing or todo) can be classified "
+                "ordinary"
+            )
+    if not workflow_dict:
+        workflow_dict = {}
+        item["workflow"] = workflow_dict
+    workflow_dict["mode"] = new_mode
+    if "status" in workflow_dict:
+        workflow_dict["updated_at"] = iso_z()
+    elif item.get("status") != "todo":
+        # A legacy item already inside the lifecycle (e.g. doing with no
+        # workflow at all) must not end up as a mode-only workflow - that
+        # shape is only legal for coarse todo. Initialize the lifecycle
+        # fields through the shared helper so the candidate stays valid.
+        ensure_workflow(item)
 
 
 def _set_plan_locator(item: dict, stored: str) -> None:
@@ -117,10 +182,20 @@ def do_add_item(args: argparse.Namespace) -> int:
         }
         if stored_plan is not None:
             item["plan_path"] = stored_plan
+        if args.mode is not None:
+            # D2: explicit pre-start classification writes a mode-only
+            # workflow ({mode}); the lifecycle starts later via
+            # ensure_workflow. Without --mode the legacy shape (no workflow)
+            # is kept and the effective mode stays high-risk.
+            item["workflow"] = {"mode": args.mode}
         checklist.setdefault("items", []).append(item)
 
     mutate_checklist(callback)
-    print(f"Added checklist item: {item_id} (status=todo, priority={args.priority})")
+    mode_note = f", mode={args.mode}" if args.mode is not None else ""
+    print(
+        f"Added checklist item: {item_id} "
+        f"(status=todo, priority={args.priority}{mode_note})"
+    )
     return 0
 
 
@@ -146,6 +221,7 @@ def do_update_item(args: argparse.Namespace) -> int:
         and stored_plan is None
         and not add_dependencies
         and not remove_dependencies
+        and args.mode is None
     ):
         fail("update-item requires at least one modification flag")
 
@@ -178,13 +254,20 @@ def do_update_item(args: argparse.Namespace) -> int:
         if stored_plan is not None:
             _set_plan_locator(item, stored_plan)
 
+        # --mode is the only workflow mutation allowed here (D2): it never
+        # touches status/owner/lease/review, and every rejection leaves the
+        # original bytes untouched via the mutation pipeline.
+        if args.mode is not None:
+            _apply_mode_transition(item, args.mode)
+
         # The callback only runs when at least one modification flag was
         # passed (pre-checked above), so the item content always changed;
         # refresh its machine evidence timestamp.
         item["updated_at"] = iso_z()
 
     mutate_checklist(callback)
-    print(f"Updated checklist item: {item_id}")
+    mode_note = f" (workflow.mode={args.mode})" if args.mode is not None else ""
+    print(f"Updated checklist item: {item_id}{mode_note}")
     return 0
 
 
@@ -244,11 +327,17 @@ def build_parser() -> argparse.ArgumentParser:
     add.add_argument("--plan", default=None, help="Canonical plan locator (file must exist).")
     add.add_argument("--dependency", action="append", default=[], help="Existing dependency id. Repeatable.")
     add.add_argument("--handoff", default=None, help="Handoff note for the next session.")
+    add.add_argument(
+        "--mode",
+        choices=("ordinary", "high-risk"),
+        default=None,
+        help="Explicit workflow mode: writes a mode-only workflow ({mode}) for pre-start classification.",
+    )
     add.set_defaults(func=do_add_item)
 
     update = sub.add_parser(
         "update-item",
-        help="Update allowed fields of an existing item (never status/owner/lease/workflow/review).",
+        help="Update allowed fields of an existing item (never status/owner/lease/workflow/review; --mode is the sole workflow.mode transition).",
     )
     update.add_argument("item_id", metavar="ID")
     update.add_argument("--title", default=None)
@@ -259,6 +348,16 @@ def build_parser() -> argparse.ArgumentParser:
     update.add_argument("--handoff", default=None)
     update.add_argument("--add-dependency", action="append", default=[])
     update.add_argument("--remove-dependency", action="append", default=[])
+    update.add_argument(
+        "--mode",
+        choices=("ordinary", "high-risk"),
+        default=None,
+        help=(
+            "Workflow mode transition (D2): upgrade explicit ordinary to high-risk, "
+            "or classify a not-yet-started legacy item (no mode) as ordinary/high-risk; "
+            "downgrades, no-ops, and done items are rejected."
+        ),
+    )
     update.set_defaults(func=do_update_item)
 
     migrate = sub.add_parser(

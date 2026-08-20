@@ -106,11 +106,14 @@ cat {{HARNESS_ROOT}}/tasks/<item-id>/plan.md
 - 重要节点需要新增或调整字段时，用 `harnessctl` 落盘，不要手改 JSON：
 
 ```bash
-{{SCRIPTS_DIR}}/harnessctl add-item <id> --title "..." --acceptance "..." [--priority p1] [--dependency <id>]...
-{{SCRIPTS_DIR}}/harnessctl update-item <id> [--title ...] [--acceptance ...] [--verification ...] [--add-dependency ...]
+{{SCRIPTS_DIR}}/harnessctl add-item <id> --title "..." --acceptance "..." [--priority p1] [--dependency <id>]... [--mode ordinary|high-risk]
+{{SCRIPTS_DIR}}/harnessctl update-item <id> [--title ...] [--acceptance ...] [--verification ...] [--add-dependency ...] [--mode ordinary|high-risk]
 ```
 
   `add-item` 只登记 `todo` 节点，不自动 start；`--plan` 指向的文件必须已存在。
+  `add-item --mode` 在开工前显式分类（mode-only workflow）；`update-item --mode` 是
+  唯一 mode transition（升级 high-risk 或未开始 legacy 分类为 ordinary；降级、相同
+  mode no-op 与 done item 被拒绝）。
   `coordinate-managed` 部署下裸 add/update 被拒绝，走 Coordinate 入口。
 - **必须调用 harnessctl 落盘**，不能只在脑内决定：
 

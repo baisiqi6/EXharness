@@ -2844,6 +2844,645 @@ class HarnessRuntimeTests(unittest.TestCase):
         validated = self.run_harness("validate")
         self.assertEqual(validated.returncode, 0, validated.stderr)
 
+    # ------------------------------------------------------------------
+    # I9: workflow.mode two-tier machine protocol
+    # ------------------------------------------------------------------
+
+    def validate_checklist_file(self, path: Path) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [sys.executable, str(self.script_dir / "validate_checklist.py"), str(path)],
+            text=True,
+            capture_output=True,
+        )
+
+    def write_mode_checklist(self, items: list[dict]) -> Path:
+        path = self.project / "mode.json"
+        write_json(
+            path,
+            {
+                "project": "p",
+                "harness_root": "docs/project-harness",
+                "updated_at": "2026-05-12",
+                "items": items,
+            },
+        )
+        return path
+
+    def start_packet_for_mode(self, mode: str, command: str) -> str:
+        """Start an item with an explicit mode-only workflow and generate a
+        review (command='review') or closeout (command='closeout') packet."""
+        self.write_checklist([base_item("mvp-001", workflow={"mode": mode})])
+        self.write_plan("tasks/mvp-001/plan.md", self.PLAN_BODY)
+        start = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+        generated = self.run_harness(command, "mvp-001", "reviewer")
+        self.assertEqual(generated.returncode, 0, generated.stderr)
+        return f"current/{command}-packet.md"
+
+    def strip_plan_section(self, packet_path: Path) -> str:
+        """Rewrite a packet without its ## Canonical Plan Content section
+        and return the new text."""
+        text = packet_path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        out: list[str] = []
+        skipping = False
+        for line in lines:
+            if line.strip() == "## Canonical Plan Content":
+                skipping = True
+                continue
+            if skipping and line.strip().startswith("## "):
+                skipping = False
+            if not skipping:
+                out.append(line)
+        stripped = "\n".join(out).rstrip() + "\n"
+        packet_path.write_text(stripped, encoding="utf-8")
+        return stripped
+
+    # matrix 1: validator mode schema
+    def test_validator_accepts_mode_only_todo_workflow(self) -> None:
+        for mode in ("ordinary", "high-risk"):
+            with self.subTest(mode=mode):
+                path = self.write_mode_checklist(
+                    [base_item("mvp-001", workflow={"mode": mode})]
+                )
+                result = self.validate_checklist_file(path)
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_validator_accepts_mode_with_valid_status(self) -> None:
+        path = self.write_mode_checklist(
+            [
+                base_item(
+                    "mvp-001",
+                    workflow={"mode": "ordinary", "status": "todo", "updated_at": "2026-05-12"},
+                )
+            ]
+        )
+        result = self.validate_checklist_file(path)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_validator_rejects_invalid_workflow_mode(self) -> None:
+        for mode in ("medium", "risk", ""):
+            with self.subTest(mode=mode):
+                path = self.write_mode_checklist(
+                    [base_item("mvp-001", workflow={"mode": mode})]
+                )
+                result = self.validate_checklist_file(path)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("workflow.mode", result.stderr)
+
+    def test_validator_rejects_null_workflow_mode(self) -> None:
+        path = self.write_mode_checklist([base_item("mvp-001", workflow={"mode": None})])
+        result = self.validate_checklist_file(path)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("workflow.mode", result.stderr)
+
+    def test_validator_rejects_empty_workflow_object(self) -> None:
+        path = self.write_mode_checklist([base_item("mvp-001", workflow={})])
+        result = self.validate_checklist_file(path)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("workflow", result.stderr)
+
+    def test_validator_rejects_mode_only_workflow_on_doing_item(self) -> None:
+        path = self.write_mode_checklist(
+            [
+                base_item(
+                    "mvp-001",
+                    "doing",
+                    owner="codex",
+                    selected_in_session="codex-1",
+                    workflow={"mode": "ordinary"},
+                )
+            ]
+        )
+        result = self.validate_checklist_file(path)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("mode-only", result.stderr)
+
+    def test_validator_rejects_mode_with_lifecycle_fields_but_no_status(self) -> None:
+        for workflow in (
+            {"mode": "ordinary", "branch": "main"},
+            {"mode": "ordinary", "updated_at": "2026-05-12"},
+        ):
+            with self.subTest(workflow=workflow):
+                path = self.write_mode_checklist([base_item("mvp-001", workflow=workflow)])
+                result = self.validate_checklist_file(path)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("workflow", result.stderr)
+
+    def test_validator_wrapper_parity_for_mode_shapes(self) -> None:
+        cases = [
+            (
+                "mode-ok.json",
+                {
+                    "project": "p",
+                    "harness_root": "docs/project-harness",
+                    "updated_at": "2026-05-12",
+                    "items": [base_item("a", workflow={"mode": "ordinary"})],
+                },
+            ),
+            (
+                "mode-bad.json",
+                {
+                    "project": "p",
+                    "harness_root": "docs/project-harness",
+                    "updated_at": "2026-05-12",
+                    "items": [base_item("a", workflow={"mode": "bogus", "status": "todo"})],
+                },
+            ),
+            (
+                "mode-shape.json",
+                {
+                    "project": "p",
+                    "harness_root": "docs/project-harness",
+                    "updated_at": "2026-05-12",
+                    "items": [
+                        base_item(
+                            "a",
+                            "doing",
+                            owner="codex",
+                            selected_in_session="codex-1",
+                            workflow={"mode": "ordinary"},
+                        )
+                    ],
+                },
+            ),
+        ]
+        for filename, content in cases:
+            path = self.project / filename
+            write_json(path, content)
+            wrapper = subprocess.run(
+                [sys.executable, str(SKILL_DIR / "scripts" / "validate-checklist.py"), str(path)],
+                text=True,
+                capture_output=True,
+            )
+            canonical = subprocess.run(
+                [sys.executable, str(self.script_dir / "validate_checklist.py"), str(path)],
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(wrapper.returncode, canonical.returncode, filename)
+            self.assertEqual(wrapper.stdout, canonical.stdout, filename)
+            self.assertEqual(wrapper.stderr, canonical.stderr, filename)
+
+    # matrix 2: add-item --mode
+    def test_add_item_default_shape_has_no_workflow(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        result = self.run_harness("add-item", "mvp-002", "--title", "T", "--acceptance", "A.")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        item = self.read_checklist()["items"][1]
+        self.assertNotIn("workflow", item)
+
+    def test_add_item_mode_writes_mode_only_workflow(self) -> None:
+        for mode in ("ordinary", "high-risk"):
+            with self.subTest(mode=mode):
+                self.write_checklist([base_item("mvp-001")])
+                result = self.run_harness(
+                    "add-item", "mvp-002", "--title", "T", "--acceptance", "A.", "--mode", mode
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                item = self.read_checklist()["items"][1]
+                self.assertEqual(item["workflow"], {"mode": mode})
+                validated = self.run_harness("validate")
+                self.assertEqual(validated.returncode, 0, validated.stderr)
+
+    def test_add_item_rejects_invalid_mode_keeping_bytes(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        result = self.run_harness(
+            "add-item", "mvp-002", "--title", "T", "--acceptance", "A.", "--mode", "bogus"
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+    # matrix 3: mode transitions via update-item --mode
+    def test_legacy_todo_can_be_classified_ordinary_before_start(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        result = self.run_harness("update-item", "mvp-001", "--mode", "ordinary")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        workflow = self.read_checklist()["items"][0]["workflow"]
+        self.assertEqual(workflow, {"mode": "ordinary"})
+
+    def test_legacy_workflow_status_todo_can_be_classified_ordinary(self) -> None:
+        self.write_checklist(
+            [base_item("mvp-001", workflow={"status": "todo", "updated_at": "2026-05-12"})]
+        )
+        result = self.run_harness("update-item", "mvp-001", "--mode", "ordinary")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        workflow = self.read_checklist()["items"][0]["workflow"]
+        self.assertEqual(workflow["mode"], "ordinary")
+        self.assertEqual(workflow["status"], "todo")
+        self.assert_utc_timestamp(workflow["updated_at"])
+
+    def test_legacy_started_item_cannot_be_classified_ordinary(self) -> None:
+        self.write_checklist(
+            [
+                base_item(
+                    "mvp-001",
+                    "doing",
+                    owner="codex",
+                    selected_in_session="codex-1",
+                    workflow={"status": "running", "updated_at": "2026-05-12"},
+                )
+            ]
+        )
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        result = self.run_harness("update-item", "mvp-001", "--mode", "ordinary")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ordinary", result.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+    def test_explicit_high_risk_cannot_downgrade_to_ordinary(self) -> None:
+        self.write_checklist([base_item("mvp-001", workflow={"mode": "high-risk"})])
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        result = self.run_harness("update-item", "mvp-001", "--mode", "ordinary")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("high-risk", result.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+    def test_ordinary_can_upgrade_to_high_risk(self) -> None:
+        self.write_checklist([base_item("mvp-001", workflow={"mode": "ordinary"})])
+        result = self.run_harness("update-item", "mvp-001", "--mode", "high-risk")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        workflow = self.read_checklist()["items"][0]["workflow"]
+        self.assertEqual(workflow, {"mode": "high-risk"})
+
+    def test_same_explicit_mode_is_rejected(self) -> None:
+        for mode in ("ordinary", "high-risk"):
+            with self.subTest(mode=mode):
+                self.write_checklist([base_item("mvp-001", workflow={"mode": mode})])
+                before = (self.harness / "mvp-checklist.json").read_bytes()
+                result = self.run_harness("update-item", "mvp-001", "--mode", mode)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+    def test_done_item_rejects_mode_transition(self) -> None:
+        for mode in ("ordinary", "high-risk"):
+            with self.subTest(mode=mode):
+                self.write_checklist(
+                    [
+                        base_item(
+                            "mvp-001",
+                            "done",
+                            verification="Verified.",
+                            workflow={"status": "closed", "mode": "ordinary"},
+                        )
+                    ]
+                )
+                before = (self.harness / "mvp-checklist.json").read_bytes()
+                result = self.run_harness("update-item", "mvp-001", "--mode", mode)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+    def test_legacy_started_item_can_be_classified_high_risk(self) -> None:
+        # a legacy doing item without any workflow: explicit high-risk
+        # initializes the lifecycle fields so the schema stays valid
+        self.write_checklist(
+            [
+                base_item(
+                    "mvp-001", "doing", owner="codex", selected_in_session="codex-1"
+                )
+            ]
+        )
+        result = self.run_harness("update-item", "mvp-001", "--mode", "high-risk")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        workflow = self.read_checklist()["items"][0]["workflow"]
+        self.assertEqual(workflow["mode"], "high-risk")
+        self.assertEqual(workflow["status"], "running")
+
+    # matrix 4: preservation and timestamp refresh rules
+    def test_mode_transition_preserves_unknown_compatible_fields(self) -> None:
+        self.write_checklist(
+            [
+                base_item(
+                    "mvp-001",
+                    title="Original title",
+                    future_extension={"a": 1},
+                    workflow={"status": "todo", "updated_at": "2026-05-12", "future": "keep"},
+                )
+            ]
+        )
+        result = self.run_harness("update-item", "mvp-001", "--mode", "ordinary")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        item = self.read_checklist()["items"][0]
+        self.assertEqual(item["title"], "Original title")
+        self.assertEqual(item["future_extension"], {"a": 1})
+        workflow = item["workflow"]
+        self.assertEqual(workflow["future"], "keep")
+        self.assertEqual(workflow["status"], "todo")
+        self.assertEqual(workflow["mode"], "ordinary")
+
+    def test_mode_mutation_refreshes_item_not_mode_only_workflow_timestamp(self) -> None:
+        self.write_checklist([base_item("mvp-001", workflow={"mode": "ordinary"})])
+        result = self.run_harness("update-item", "mvp-001", "--mode", "high-risk")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        item = self.read_checklist()["items"][0]
+        self.assert_utc_timestamp(item["updated_at"])
+        workflow = item["workflow"]
+        self.assertNotIn("updated_at", workflow)
+        self.assertNotIn("status", workflow)
+
+    def test_mode_mutation_refreshes_workflow_timestamp_when_status_exists(self) -> None:
+        self.write_checklist(
+            [
+                base_item(
+                    "mvp-001",
+                    workflow={
+                        "mode": "ordinary",
+                        "status": "todo",
+                        "updated_at": "2026-05-12",
+                    },
+                )
+            ]
+        )
+        result = self.run_harness("update-item", "mvp-001", "--mode", "high-risk")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        workflow = self.read_checklist()["items"][0]["workflow"]
+        self.assertEqual(workflow["mode"], "high-risk")
+        self.assertEqual(workflow["status"], "todo")
+        self.assert_utc_timestamp(workflow["updated_at"])
+
+    # matrix 5: packet shape by mode
+    def test_high_risk_packets_embed_full_plan_snapshot(self) -> None:
+        for command in ("review", "closeout"):
+            with self.subTest(command=command):
+                packet_rel = self.start_packet_for_mode("high-risk", command)
+                text = (self.harness / packet_rel).read_text(encoding="utf-8")
+                self.assertIn("- Workflow mode: `high-risk`", text)
+                self.assertIn(
+                    f"## Canonical Plan Content\n\n```md\n{self.PLAN_BODY.rstrip()}\n```",
+                    text,
+                )
+
+    def test_ordinary_packets_omit_plan_body_and_state_mode(self) -> None:
+        for command in ("review", "closeout"):
+            with self.subTest(command=command):
+                packet_rel = self.start_packet_for_mode("ordinary", command)
+                text = (self.harness / packet_rel).read_text(encoding="utf-8")
+                self.assertIn("- Workflow mode: `ordinary`", text)
+                self.assertIn("plan body omitted", text)
+                self.assertNotIn(
+                    f"```md\n{self.PLAN_BODY.rstrip()}\n```", text
+                )
+                self.assertIn("## Freshness Metadata", text)
+                for field in (
+                    "generated_at",
+                    "source_plan_sha256",
+                    "canonical_plan_path",
+                    "checklist_item",
+                ):
+                    self.assertRegex(text, rf"- {field}: `[^`]+`")
+                for section in (
+                    "## Item Snapshot",
+                    "## Acceptance",
+                    "## Verification",
+                    "## Handoff",
+                    "## Review Inputs",
+                ):
+                    self.assertIn(section, text)
+
+    # matrix 6: ordinary verdict flow keeps freshness gates
+    def test_ordinary_full_lifecycle_review_closeout_mark_done(self) -> None:
+        self.write_checklist([base_item("mvp-001", workflow={"mode": "ordinary"})])
+        self.write_plan("tasks/mvp-001/plan.md", self.PLAN_BODY)
+        start = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+
+        reviewed = self.run_harness("review", "mvp-001", "reviewer")
+        self.assertEqual(reviewed.returncode, 0, reviewed.stderr)
+        review_hash = self.sha("current/review-packet.md")
+        verdict = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", review_hash,
+        )
+        self.assertEqual(verdict.returncode, 0, verdict.stderr)
+
+        requested = self.run_harness("closeout", "mvp-001", "reviewer")
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        packet_hash = self.sha("current/closeout-packet.md")
+        verdict = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+        )
+        self.assertEqual(verdict.returncode, 0, verdict.stderr)
+        done = self.run_harness("mark-done", "mvp-001", "operator")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        item = self.read_checklist()["items"][0]
+        self.assertEqual(item["status"], "done")
+        self.assertEqual(item["workflow"]["status"], "closed")
+        self.assertEqual(item["workflow"]["mode"], "ordinary")
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+
+    def test_ordinary_verdict_fails_closed_on_plan_drift(self) -> None:
+        self.write_checklist([base_item("mvp-001", workflow={"mode": "ordinary"})])
+        self.write_plan("tasks/mvp-001/plan.md", self.PLAN_BODY)
+        start = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+        requested = self.run_harness("closeout", "mvp-001", "reviewer")
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        packet_hash = self.sha("current/closeout-packet.md")
+        self.write_plan("tasks/mvp-001/plan.md", self.PLAN_BODY + "\n# Drift\n")
+        verdict = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+        )
+        self.assertNotEqual(verdict.returncode, 0)
+        self.assertIn("source_plan_sha256", verdict.stderr)
+
+    def test_ordinary_verdict_fails_closed_on_packet_bytes_drift(self) -> None:
+        self.write_checklist([base_item("mvp-001", workflow={"mode": "ordinary"})])
+        self.write_plan("tasks/mvp-001/plan.md", self.PLAN_BODY)
+        start = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+        requested = self.run_harness("closeout", "mvp-001", "reviewer")
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        packet_hash = self.sha("current/closeout-packet.md")
+        packet_path = self.harness / "current" / "closeout-packet.md"
+        packet_path.write_text(
+            packet_path.read_text(encoding="utf-8") + "\n# tamper\n", encoding="utf-8"
+        )
+        verdict = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+        )
+        self.assertNotEqual(verdict.returncode, 0)
+        self.assertIn("does not match", verdict.stderr)
+
+    # matrix 7: upgrade gate invalidates lightweight packets
+    def test_ordinary_to_high_risk_invalidates_lightweight_packet(self) -> None:
+        self.write_checklist([base_item("mvp-001", workflow={"mode": "ordinary"})])
+        self.write_plan("tasks/mvp-001/plan.md", self.PLAN_BODY)
+        start = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+        requested = self.run_harness("closeout", "mvp-001", "reviewer")
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        packet_hash = self.sha("current/closeout-packet.md")
+
+        upgraded = self.run_harness("update-item", "mvp-001", "--mode", "high-risk")
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+
+        verdict = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+        )
+        self.assertNotEqual(verdict.returncode, 0)
+        self.assertIn("snapshot", verdict.stderr)
+
+        # regenerate as high-risk: full snapshot -> verdict passes
+        regenerated = self.run_harness("closeout", "mvp-001", "reviewer")
+        self.assertEqual(regenerated.returncode, 0, regenerated.stderr)
+        new_hash = self.sha("current/closeout-packet.md")
+        verdict = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", new_hash,
+        )
+        self.assertEqual(verdict.returncode, 0, verdict.stderr)
+
+    # matrix 8: explicit high-risk snapshot requirements
+    def test_explicit_high_risk_requires_snapshot_for_verdict(self) -> None:
+        self.write_checklist([base_item("mvp-001", workflow={"mode": "high-risk"})])
+        self.write_plan("tasks/mvp-001/plan.md", self.PLAN_BODY)
+        start = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+        requested = self.run_harness("closeout", "mvp-001", "reviewer")
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        packet_path = self.harness / "current" / "closeout-packet.md"
+        stripped = self.strip_plan_section(packet_path)
+        verdict = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", hashlib.sha256(stripped.encode()).hexdigest(),
+        )
+        self.assertNotEqual(verdict.returncode, 0)
+        self.assertIn("snapshot", verdict.stderr)
+
+    def test_ordinary_packet_with_wrong_snapshot_fails_closed(self) -> None:
+        self.write_checklist([base_item("mvp-001", workflow={"mode": "ordinary"})])
+        self.write_plan("tasks/mvp-001/plan.md", self.PLAN_BODY)
+        start = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+        requested = self.run_harness("closeout", "mvp-001", "reviewer")
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        packet_path = self.harness / "current" / "closeout-packet.md"
+        text = packet_path.read_text(encoding="utf-8")
+        out: list[str] = []
+        for line in text.splitlines():
+            out.append(line)
+            if line.strip() == "## Canonical Plan Content":
+                out.extend(["", "```md", "STALE PLAN BODY", "```"])
+        injected = "\n".join(out) + "\n"
+        packet_path.write_text(injected, encoding="utf-8")
+        verdict = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", hashlib.sha256(injected.encode()).hexdigest(),
+        )
+        self.assertNotEqual(verdict.returncode, 0)
+        self.assertIn("snapshot", verdict.stderr)
+
+    def test_ordinary_packet_stale_fence_after_note_fails_closed(self) -> None:
+        # P1 (operator finding round 1): a fenced snapshot appended after
+        # the ordinary lightweight note, inside the same canonical-plan
+        # section, must be parsed and validated - not silently treated as
+        # "no snapshot" because the first non-blank line is prose.
+        self.write_checklist([base_item("mvp-001", workflow={"mode": "ordinary"})])
+        self.write_plan("tasks/mvp-001/plan.md", self.PLAN_BODY)
+        start = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+        requested = self.run_harness("closeout", "mvp-001", "reviewer")
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        packet_path = self.harness / "current" / "closeout-packet.md"
+        text = packet_path.read_text(encoding="utf-8")
+        injected = text.replace(
+            "at the locator above before reviewing.",
+            "at the locator above before reviewing.\n\n```md\nSTALE PLAN BODY\n```",
+        )
+        self.assertNotEqual(injected, text)
+        packet_path.write_text(injected, encoding="utf-8")
+        verdict = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", hashlib.sha256(injected.encode()).hexdigest(),
+        )
+        self.assertNotEqual(verdict.returncode, 0)
+        self.assertIn("snapshot", verdict.stderr)
+
+    def test_ordinary_packet_duplicate_heading_with_stale_fence_fails_closed(self) -> None:
+        # P1 (operator finding round 1): a second ## Canonical Plan Content
+        # heading plus a stale fenced snapshot is ambiguous and must fail
+        # closed - never silently returned as "no snapshot".
+        self.write_checklist([base_item("mvp-001", workflow={"mode": "ordinary"})])
+        self.write_plan("tasks/mvp-001/plan.md", self.PLAN_BODY)
+        start = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+        requested = self.run_harness("closeout", "mvp-001", "reviewer")
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        packet_path = self.harness / "current" / "closeout-packet.md"
+        text = packet_path.read_text(encoding="utf-8")
+        injected = text.replace(
+            "at the locator above before reviewing.",
+            "at the locator above before reviewing.\n\n"
+            "## Canonical Plan Content\n\n```md\nSTALE PLAN BODY\n```",
+        )
+        self.assertNotEqual(injected, text)
+        packet_path.write_text(injected, encoding="utf-8")
+        verdict = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", hashlib.sha256(injected.encode()).hexdigest(),
+        )
+        self.assertNotEqual(verdict.returncode, 0)
+        self.assertIn("duplicate", verdict.stderr)
+
+    def test_plan_snapshot_section_scope_and_duplicate_sentinel(self) -> None:
+        # P1 unit-level contract: the scan stays inside the canonical-plan
+        # section, parses a fence that follows the ordinary note, fails on
+        # duplicate headings, and never crosses into the next H2 section.
+        hc = self.load_harness_common()
+        note = (
+            "## Canonical Plan Content\n\n"
+            "plan body omitted (workflow.mode=ordinary); read the canonical "
+            "plan at the locator above before reviewing.\n\n"
+            "## Review Focus\n"
+        )
+        # ordinary lightweight note without a fence -> None
+        self.assertIsNone(hc.plan_snapshot(note))
+        # stale fence after the note, before the next H2 -> parsed content
+        with_fence = note.replace(
+            "before reviewing.\n\n",
+            "before reviewing.\n\n```md\nSTALE PLAN BODY\n```\n\n",
+        )
+        self.assertEqual(hc.plan_snapshot(with_fence), "STALE PLAN BODY")
+        # duplicate heading before the stale fence -> sentinel
+        duplicate_first = note.replace(
+            "before reviewing.\n\n",
+            "before reviewing.\n\n## Canonical Plan Content\n\n"
+            "```md\nSTALE 2\n```\n\n",
+        )
+        self.assertIs(hc.plan_snapshot(duplicate_first), hc.PLAN_SECTION_DUPLICATE)
+        # fence first, then a second heading -> still sentinel
+        duplicate_second = with_fence.replace(
+            "## Review Focus",
+            "## Canonical Plan Content\n\n```md\nSTALE 2\n```\n\n## Review Focus",
+        )
+        self.assertIs(hc.plan_snapshot(duplicate_second), hc.PLAN_SECTION_DUPLICATE)
+        # a fence in the FOLLOWING section is not this section's snapshot
+        next_section_fence = note + "```md\nNOT MINE\n```\n"
+        self.assertIsNone(hc.plan_snapshot(next_section_fence))
+
+    # matrix 9: help and docs consistency
+    def test_help_documents_mode_flags(self) -> None:
+        result = self.run_harness("--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--mode ordinary|high-risk", result.stdout)
+
+    def test_mode_docs_consistent_with_cli(self) -> None:
+        skill_text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("--mode ordinary|high-risk", skill_text)
+        for template in (
+            REFERENCES_DIR / "task-plan-template.md",
+            REFERENCES_DIR / "planning-files-template.md",
+        ):
+            self.assertIn(
+                "--mode ordinary|high-risk", template.read_text(encoding="utf-8")
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

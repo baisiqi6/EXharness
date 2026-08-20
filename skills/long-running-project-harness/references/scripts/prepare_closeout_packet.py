@@ -17,7 +17,8 @@ from harness_common import (
     read_text,
     rel,
     render_freshness_metadata,
-    render_plan_snapshot,
+    render_packet_plan_section,
+    effective_workflow_mode,
     require_item,
     resolve_item_plan,
     sha256_bytes,
@@ -80,6 +81,7 @@ def main() -> int:
 - Checklist item: `{item["id"]}`
 - Reviewer: `{args.reviewer}`
 - Updated at: `{args.date or iso_z()}`
+- Workflow mode: `{effective_workflow_mode(item)}`
 - Canonical plan path: `{rel(plan_path)}`
 
 ## Item Snapshot
@@ -112,9 +114,7 @@ def main() -> int:
 - Progress: `{{HARNESS_ROOT}}/progress.md`
 - Review output target: `{{HARNESS_ROOT}}/current/review.md`
 
-## Canonical Plan Content
-
-{render_plan_snapshot(plan_text)}
+{render_packet_plan_section(item, plan_text)}
 
 ## Recent Progress Context
 

@@ -6,6 +6,10 @@
 > `mvp-checklist.json` 仍完整兼容；none/both 时 runtime fail closed，不要手动二选一。
 > 需要从旧名切换到新名时运行 `harnessctl migrate-checklist`。节点的新增与字段更新用
 > `harnessctl add-item` / `harnessctl update-item`，不要手改 JSON。
+> `workflow.mode` 只取 `ordinary` / `high-risk`（缺失默认 `high-risk`，不新增第三档）：
+> `add-item --mode ordinary|high-risk` 在开工前显式分类（mode-only workflow），
+> `update-item --mode` 是唯一 transition 入口（允许升级 high-risk 与未开始 legacy
+> 分类为 ordinary；拒绝降级、相同 mode no-op 与 done item）。
 > 一个 item 的 canonical plan 只允许一个 locator 答案（`plan_path` 或 `artifacts.plan`
 > 之一，或两者标准化后相同），冲突时 runtime fail closed；已存在的 locator 指向缺失
 > 文件时 `start` 会失败，不会偷偷重建默认 plan。

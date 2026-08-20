@@ -181,6 +181,7 @@ tasks/
 - 只有完成、handoff、decline、阻塞、或主动释放任务时，才清空 `owner`。
 - `workflow`、`lease`、`artifacts`、`review` 是兼容扩展字段；老 harness 可以没有这些字段。
 - `workflow.status` 记录细粒度阶段：`assigned`、`running`、`handoff_requested`、`blocked`、`unblocked`、`closeout_requested`、`review_approved`、`changes_requested`、`closed` 等。
+- `workflow.mode`（`ordinary` / `high-risk`，缺失默认 `high-risk`）是 item 的协议档位；mode-only shape 只允许 `todo + {mode}`，变更只能通过 `update-item --mode`（升级或未开始 legacy 分类；拒绝降级/no-op/done）。
 - `lease` 用于避免多 agent 同时抢同一 item；过期后可以被接管，强制接管必须写 reason 并追加 event。
 - `workflow.branch` 是当前 item 的工作分支；`artifacts.branch` 保持同值；`artifacts.pr` 是后续交付链接。
 
@@ -200,15 +201,16 @@ scripts/harness/harnessctl validate
 operator 需要新增或调整重要节点时，用 `harnessctl` 落盘，不要手改 JSON：
 
 ```bash
-# 新增 todo 节点（初始状态固定 todo，priority 默认 p1）
+# 新增 todo 节点（初始状态固定 todo，priority 默认 p1；--mode 在开工前显式分类）
 scripts/harness/harnessctl add-item mvp-004 \
   --title "Implement node handlers" \
   --acceptance "Node handlers pass the configured test suite." \
   --priority p1 \
   --dependency mvp-002 \
-  --handoff "Next session starts from current/task_plan.md."
+  --handoff "Next session starts from current/task_plan.md." \
+  --mode ordinary
 
-# 更新已存在节点的允许字段（title/acceptance/priority/plan/verification/handoff/依赖）
+# 更新已存在节点的允许字段（title/acceptance/priority/plan/verification/handoff/依赖/mode）
 scripts/harness/harnessctl update-item mvp-004 \
   --acceptance "Updated acceptance text." \
   --add-dependency mvp-003
@@ -217,6 +219,8 @@ scripts/harness/harnessctl update-item mvp-004 \
 规则：
 
 - `add-item` 只创建 `todo` 节点；不创建 plan 文件、不自动 start、不写 lease/review/workflow 占位对象。
+- `add-item --mode ordinary|high-risk` 写入 mode-only workflow（`{"mode": ...}`）；不传时保持 legacy 无 workflow shape，effective mode 为 high-risk。
+- `update-item --mode` 是唯一 `workflow.mode` transition：允许 explicit `ordinary` → `high-risk`、legacy → `high-risk`、未开始的 legacy（coarse `todo`，workflow status 缺失或 `todo`）→ `ordinary`；拒绝 `high-risk` → `ordinary` 降级、已开始的 legacy → `ordinary`、相同 mode no-op 与 `done` item。拒绝时 checklist bytes 不变。
 - 只有提供 `--plan` 时才写 plan locator；同一节点不要同时维护 `plan_path` 与 `artifacts.plan` 两个不同值。
 - `--plan` 指向的文件必须已存在；Standalone 允许 operator 明确选择 external absolute plan locator
   （这是 operator 选择，不是 containment 安全保证）。

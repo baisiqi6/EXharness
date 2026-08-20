@@ -33,6 +33,7 @@ pwd
 - 运行 typecheck（如果项目有 typecheck 命令）
 - 运行 test（如果项目有 test 命令）
 - 输出当前状态摘要
+- 做只读 worktree 发现：若 current item 的 `workflow.branch` 已在另一个 worktree 展开，输出 `Active item worktree: <path>` 并建议切换；Git 不可用时静默跳过
 
 **门控**：如果 session-init 报告失败，先修 bug，再实现新功能。
 不要在已知回归上继续堆新代码。如果测试已知不稳定，用 `--skip-tests`，

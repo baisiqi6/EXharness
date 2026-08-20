@@ -187,12 +187,26 @@ python3 {{SCRIPTS_DIR}}/validate_checklist.py {{HARNESS_ROOT}}/harness-checklist
 ```
 
 3. 让审查 agent 读取 `{{HARNESS_ROOT}}/current/closeout-packet.md`，确认 acceptance 和 verification 都闭环
-4. reviewer 必须通过 `{{SCRIPTS_DIR}}/harnessctl review-result <item-id> <reviewer> approved` 写入审查结论
-5. 只有审查通过后，operator/human 才能运行：
+4. reviewer 对自己实际阅读的 packet 文件计算 exact bytes SHA-256（不得回抄 packet
+   header）。协议只要求 exact bytes SHA-256，平台命令只是示例，不是 authority：
+
+```bash
+shasum -a 256 {{HARNESS_ROOT}}/current/closeout-packet.md        # macOS
+sha256sum {{HARNESS_ROOT}}/current/closeout-packet.md            # Linux
+Get-FileHash -Algorithm SHA256 {{HARNESS_ROOT}}\current\closeout-packet.md   # Windows PowerShell
+```
+
+5. reviewer 必须通过 `{{SCRIPTS_DIR}}/harnessctl review-result <item-id> <reviewer> approved --reviewed-packet-sha256 <64-hex>` 写入审查结论；`review-result` 只接受绑定当前 packet bytes 的 verdict，plan/packet 已过期时 fail closed
+6. 只有审查通过后，operator/human 才能运行：
 
 ```bash
 {{SCRIPTS_DIR}}/harnessctl mark-done <item-id> <actor>
 ```
+
+`mark-done` 会重新验证 approval 时的 packet bytes 与当前 canonical plan，漂移时
+fail closed；`--force --reason` 是唯一可越过 freshness 的显式 break-glass。
+`harnessctl validate` 对 legacy/漂移的 packet 与 current pointer 只输出 `WARN`，
+不改变退出码。
 
 ### Step 12：汇报
 

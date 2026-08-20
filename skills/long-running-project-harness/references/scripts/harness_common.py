@@ -27,6 +27,19 @@ CHECKLIST_NEW_NAME = "harness-checklist.json"
 CHECKLIST_LEGACY_NAME = "mvp-checklist.json"
 ALLOWED_DEPLOYMENT_PROFILES = {"standalone", "coordinate-managed"}
 
+# Derived-artifact freshness contract (issue #7): verdict packets and the
+# current pointer carry this fixed metadata section at the top, before the
+# first fenced plan snapshot. The verifier only ever parses that bounded
+# section; a canonical plan body that happens to contain a lookalike header
+# inside its snapshot must not change the result.
+FRESHNESS_HEADING = "## Freshness Metadata"
+FRESHNESS_FIELDS = (
+    "generated_at",
+    "source_plan_sha256",
+    "canonical_plan_path",
+    "checklist_item",
+)
+
 # errno values that unambiguously mean "this platform cannot open/fsync a
 # directory fd". Ordinary I/O errors (EACCES, EIO, EBADF, ENOENT, ...) must
 # NOT be treated as unsupported: they propagate.
@@ -198,6 +211,118 @@ def require_standalone_mutation(config: dict[str, Any] | None = None) -> None:
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def render_freshness_metadata(metadata: dict[str, str]) -> str:
+    """Deterministic freshness block (D1) for packet/pointer generators.
+
+    Callers place it at the artifact top, before the first fenced plan
+    snapshot, and must supply every FRESHNESS_FIELDS key.
+    """
+    lines = [FRESHNESS_HEADING, ""]
+    for field in FRESHNESS_FIELDS:
+        lines.append(f"- {field}: `{metadata[field]}`")
+    return "\n".join(lines) + "\n"
+
+
+def parse_freshness_metadata(text: str) -> tuple[dict[str, str], list[str]]:
+    """Bounded parse of the fixed `## Freshness Metadata` section.
+
+    Only the region before the first fenced code block is scanned, so a
+    canonical plan body containing a fake freshness header inside its
+    snapshot cannot change the result. Returns (metadata, duplicate_keys);
+    a repeated key is reported instead of silently last-winning, so verdicts
+    fail closed and validate can warn. Callers must require all four
+    FRESHNESS_FIELDS.
+    """
+    prefix = text
+    fence = re.search(r"^```", text, re.MULTILINE)
+    if fence is not None:
+        prefix = text[: fence.start()]
+    metadata: dict[str, str] = {}
+    duplicate_keys: list[str] = []
+    lines = prefix.splitlines()
+    for index, line in enumerate(lines):
+        if line.strip() != FRESHNESS_HEADING:
+            continue
+        for entry in lines[index + 1 :]:
+            stripped = entry.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("#") or stripped.startswith("```"):
+                break
+            match = re.match(r"^- ([A-Za-z0-9_]+): `(.*)`$", stripped)
+            if match is None:
+                break
+            key = match.group(1)
+            if key in metadata:
+                duplicate_keys.append(key)
+            else:
+                metadata[key] = match.group(2)
+        break
+    return metadata, duplicate_keys
+
+
+def render_plan_snapshot(plan_text: str) -> str:
+    """Deterministic plan snapshot framing for verdict packets (addendum 1).
+
+    The fence is one backtick longer than the longest consecutive backtick
+    run in the rendered plan, so a plan containing its own ``` fences can
+    never break the snapshot framing; the render keeps the established
+    `rstrip()` semantics of the packet generators.
+    """
+    rendered = plan_text.rstrip()
+    max_run = 0
+    run = 0
+    for char in rendered:
+        if char == "`":
+            run += 1
+            max_run = max(max_run, run)
+        else:
+            run = 0
+    fence = "`" * max(3, max_run + 1)
+    return f"{fence}md\n{rendered}\n{fence}"
+
+
+def plan_snapshot(text: str) -> str | None:
+    """Content of the canonical plan snapshot inside a verdict packet.
+
+    The unique `## Canonical Plan Content` heading is located first; only
+    the text after it is scanned for the generated opening fence and its
+    exact same-length closing fence. Fenced blocks in Acceptance /
+    Verification / Handoff that legitimately precede the heading are never
+    mistaken for the snapshot, and inner plan fences shorter than the
+    framing fence never truncate it. A missing heading/fence pair yields
+    None so the caller fails closed.
+    """
+    lines = text.splitlines()
+    heading = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if line.strip() == "## Canonical Plan Content"
+        ),
+        None,
+    )
+    if heading is None:
+        return None
+    start = next(
+        (
+            index
+            for index in range(heading + 1, len(lines))
+            if lines[index].startswith("```")
+        ),
+        None,
+    )
+    if start is None:
+        return None
+    opening = lines[start]
+    run = len(opening) - len(opening.lstrip("`"))
+    closing = "`" * run
+    for end in range(start + 1, len(lines)):
+        if lines[end] == closing:
+            return "\n".join(lines[start + 1 : end])
+    return None
 
 
 def _fsync_dir(directory: Path) -> None:
@@ -480,6 +605,230 @@ def resolve_item_plan(item: dict[str, Any], *, require_exists: bool) -> Path:
     if require_exists and not (path.is_file() and os.access(path, os.R_OK)):
         fail(f"plan file not found or not readable: {path}")
     return path
+
+
+def packet_artifact_key(workflow_status: str | None) -> str | None:
+    """Unique packet artifact bound to a workflow phase (D3).
+
+    review_requested binds the review packet; closeout_requested and the
+    post-approval review_approved phase bind the closeout packet. Any other
+    phase has no packet to verify against and verdicts fail closed.
+    """
+    return {
+        "review_requested": "review_packet",
+        "closeout_requested": "closeout_packet",
+        "review_approved": "closeout_packet",
+    }.get(workflow_status)
+
+
+def bound_packet_path(item: dict[str, Any], workflow_status: str | None) -> Path | None:
+    """Resolve the phase-bound packet locator under the shared path policy.
+
+    Returns None when the phase has no packet, the artifact field is
+    missing/blank, or the locator is unsafe ('..'); the caller fails closed.
+    """
+    key = packet_artifact_key(workflow_status)
+    if key is None:
+        return None
+    artifacts = item.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return None
+    raw = artifacts.get(key)
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        return _interpret_plan_locator(f"artifacts.{key}", raw.strip())
+    except SystemExit:
+        return None
+
+
+def packet_freshness_problems(
+    *,
+    item: dict[str, Any],
+    workflow_status: str | None,
+    reviewer_hash: str | None = None,
+) -> list[str]:
+    """Shared verdict-packet freshness checks (D2-D5).
+
+    Checks the phase-bound packet locator, readability, exact-bytes binding
+    when `reviewer_hash` is provided, the bounded freshness metadata, item
+    and plan locator identity, source plan hash, and the embedded plan
+    snapshot render. Returns problems (empty means fresh); never mutates
+    the checklist. `reviewer_hash` is the hash the reviewer computed over
+    the exact packet bytes they read; None skips byte binding (validate).
+    """
+    label = f"item {item.get('id')!r}"
+    if reviewer_hash is not None and re.fullmatch(r"[0-9a-fA-F]{64}", reviewer_hash) is None:
+        return ["--reviewed-packet-sha256 must be exactly 64 hex characters"]
+
+    packet_path = bound_packet_path(item, workflow_status)
+    if packet_path is None:
+        return [
+            f"{label} has no packet bound to workflow phase {workflow_status!r}; "
+            "regenerate the review/closeout packet"
+        ]
+    if not packet_path.is_file():
+        return [f"{label} packet is not a readable file: {packet_path}"]
+    try:
+        packet_bytes = packet_path.read_bytes()
+        packet_text = packet_bytes.decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return [f"{label} packet is not a readable UTF-8 file: {packet_path}: {exc}"]
+
+    if reviewer_hash is not None:
+        actual = sha256_bytes(packet_bytes)
+        if reviewer_hash.lower() != actual:
+            return [
+                f"{label} --reviewed-packet-sha256 {reviewer_hash} does not match "
+                f"the current packet bytes (sha256 {actual}); the packet changed "
+                "since review - regenerate it and re-review"
+            ]
+
+    metadata, duplicate_keys = parse_freshness_metadata(packet_text)
+    if duplicate_keys:
+        return [
+            f"{label} packet freshness metadata has duplicate keys: "
+            f"{', '.join(sorted(set(duplicate_keys)))}"
+        ]
+    if not metadata:
+        return [
+            f"{label} packet is legacy: no {FRESHNESS_HEADING} section; "
+            "regenerate the packet and re-review"
+        ]
+    missing = [field for field in FRESHNESS_FIELDS if not metadata.get(field)]
+    if missing:
+        return [f"{label} packet freshness metadata missing: {', '.join(missing)}"]
+
+    problems: list[str] = []
+    if metadata["checklist_item"] != str(item.get("id")):
+        problems.append(
+            f"{label} packet checklist_item {metadata['checklist_item']!r} "
+            f"does not match item {item.get('id')!r}"
+        )
+    try:
+        plan_path = resolve_item_plan(item, require_exists=True)
+        packet_plan_path = _interpret_plan_locator(
+            "packet canonical_plan_path", metadata["canonical_plan_path"]
+        )
+        plan_bytes = plan_path.read_bytes()
+        plan_render = plan_path.read_text(encoding="utf-8").rstrip()
+    except SystemExit as exc:
+        return [f"{label} cannot resolve canonical plan: {exc}"]
+    except OSError as exc:
+        return [f"{label} canonical plan cannot be read: {plan_path}: {exc}"]
+
+    if packet_plan_path.resolve() != plan_path.resolve():
+        problems.append(
+            f"{label} packet canonical_plan_path {metadata['canonical_plan_path']!r} "
+            f"does not match the resolved plan {rel(plan_path)}"
+        )
+    if metadata["source_plan_sha256"].lower() != sha256_bytes(plan_bytes):
+        problems.append(
+            f"{label} packet source_plan_sha256 does not match the current "
+            "canonical plan; the plan changed after packet generation"
+        )
+    snapshot = plan_snapshot(packet_text)
+    if snapshot is None:
+        problems.append(f"{label} packet has no fenced canonical plan snapshot")
+    elif snapshot != plan_render:
+        problems.append(
+            f"{label} packet plan snapshot does not match the current canonical "
+            "plan render; the plan changed after packet generation"
+        )
+    return problems
+
+
+def derived_freshness_warnings(checklist: dict[str, Any]) -> list[str]:
+    """D6: warning-only derived-artifact checks for `harnessctl validate`.
+
+    Legacy artifacts and drift only warn and keep validate successful;
+    missing derived files are not upgraded to schema errors. Verdict and
+    closeout gates fail closed separately via packet_freshness_problems.
+    """
+    warnings: list[str] = []
+
+    for item in checklist.get("items", []):
+        if not isinstance(item, dict):
+            continue
+        workflow_status = (item.get("workflow") or {}).get("status")
+        if workflow_status not in ("review_requested", "closeout_requested", "review_approved"):
+            continue
+        packet_path = bound_packet_path(item, workflow_status)
+        if packet_path is None or not packet_path.is_file():
+            continue  # missing derived file is not a freshness schema error
+        warnings.extend(
+            packet_freshness_problems(item=item, workflow_status=workflow_status)
+        )
+
+    pointer_path = current_task_pointer_path()
+    if pointer_path.is_file():
+        pointer_text = read_text(pointer_path)
+        if re.search(r"^- Checklist item: null$", pointer_text, re.MULTILINE):
+            # cleared pointer: clear_current_pointer writes the value bare
+            return warnings
+        body_match = re.search(r"- Checklist item: `([^`]+)`", pointer_text)
+        if body_match is None or not body_match.group(1).strip():
+            warnings.append(
+                f"{rel(pointer_path)} has no parseable '- Checklist item:' in its "
+                "current item section; re-run sync"
+            )
+            return warnings
+        body_item = body_match.group(1).strip()
+        if body_item == "null":
+            # cleared pointer (hand-written backticked form): nothing to check
+            return warnings
+        metadata, duplicate_keys = parse_freshness_metadata(pointer_text)
+        if duplicate_keys:
+            warnings.append(
+                f"{rel(pointer_path)} freshness metadata has duplicate keys: "
+                f"{', '.join(sorted(set(duplicate_keys)))}"
+            )
+        if not metadata:
+            warnings.append(
+                f"{rel(pointer_path)} is legacy: no {FRESHNESS_HEADING} section; re-run sync"
+            )
+            return warnings
+        if body_item != metadata.get("checklist_item"):
+            warnings.append(
+                f"{rel(pointer_path)} body checklist item {body_item!r} differs "
+                f"from freshness metadata {metadata.get('checklist_item')!r}; re-run sync"
+            )
+        missing = [field for field in FRESHNESS_FIELDS if not metadata.get(field)]
+        if missing:
+            warnings.append(
+                f"{rel(pointer_path)} freshness metadata missing: {', '.join(missing)}"
+            )
+            return warnings
+        pointer_item = find_item(checklist, metadata["checklist_item"])
+        if pointer_item is None:
+            warnings.append(
+                f"{rel(pointer_path)} references unknown checklist item "
+                f"{metadata['checklist_item']!r}"
+            )
+            return warnings
+        try:
+            plan_path = resolve_item_plan(pointer_item, require_exists=True)
+            packet_plan_path = _interpret_plan_locator(
+                "pointer canonical_plan_path", metadata["canonical_plan_path"]
+            )
+            plan_bytes = plan_path.read_bytes()
+        except SystemExit as exc:
+            warnings.append(f"{rel(pointer_path)}: {exc}")
+        except OSError as exc:
+            warnings.append(f"{rel(pointer_path)}: canonical plan unreadable: {exc}")
+        else:
+            if packet_plan_path.resolve() != plan_path.resolve():
+                warnings.append(
+                    f"{rel(pointer_path)} canonical_plan_path "
+                    f"{metadata['canonical_plan_path']!r} does not match the "
+                    f"resolved plan {rel(plan_path)}; re-run sync"
+                )
+            if metadata["source_plan_sha256"].lower() != sha256_bytes(plan_bytes):
+                warnings.append(
+                    f"{rel(pointer_path)} source_plan_sha256 does not match the "
+                    "current canonical plan; re-run sync"
+                )
+    return warnings
 
 
 def config_path() -> Path:
@@ -781,6 +1130,15 @@ def main() -> int:
         help="Run the shared runtime locator authority check on a checklist file.",
     )
     parser.add_argument(
+        "--check-derived-freshness",
+        metavar="PATH",
+        help=(
+            "Warning-only derived-artifact freshness check (current pointer and "
+            "phase-bound packets) for harnessctl validate; always exits 0 on "
+            "readable checklists."
+        ),
+    )
+    parser.add_argument(
         "--doctor-doing-plan",
         metavar="PATH",
         help=(
@@ -809,6 +1167,16 @@ def main() -> int:
         for problem in problems:
             print(f"ERROR: {problem}", file=sys.stderr)
         return 1 if problems else 0
+    if args.check_derived_freshness:
+        try:
+            with open(args.check_derived_freshness, encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"ERROR: could not read checklist: {exc}", file=sys.stderr)
+            return 2
+        for warning in derived_freshness_warnings(data):
+            print(f"WARN: {warning}")
+        return 0
     if args.doctor_doing_plan:
         try:
             with open(args.doctor_doing_plan, encoding="utf-8") as handle:

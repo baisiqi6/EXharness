@@ -362,6 +362,7 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertFalse(packet.endswith(b"\n\n"))
         for question in range(1, 5):
             self.assertIn(f"{question}. ".encode(), packet)
+        packet_hash = hashlib.sha256(packet).hexdigest()
 
         denied = self.run_harness("mark-done", "mvp-001", "operator")
         self.assertNotEqual(denied.returncode, 0)
@@ -372,6 +373,8 @@ class HarnessRuntimeTests(unittest.TestCase):
             "mvp-001",
             "reviewer",
             "approved",
+            "--reviewed-packet-sha256",
+            packet_hash,
             "--summary",
             "Acceptance and verification pass.",
         )
@@ -437,11 +440,19 @@ class HarnessRuntimeTests(unittest.TestCase):
         start = self.run_harness("start", "mvp-001", "codex", "codex-1")
         self.assertEqual(start.returncode, 0, start.stderr)
 
+        requested = self.run_harness("review", "mvp-001", "reviewer")
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        packet_hash = hashlib.sha256(
+            (self.harness / "current" / "review-packet.md").read_bytes()
+        ).hexdigest()
+
         approved = self.run_harness(
             "review-result",
             "mvp-001",
             "reviewer",
             "approved",
+            "--reviewed-packet-sha256",
+            packet_hash,
             "--summary",
             "Plan looks fine, but this is not a closeout review.",
         )
@@ -457,7 +468,17 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertEqual(start.returncode, 0, start.stderr)
         closeout = self.run_harness("closeout", "mvp-001", "reviewer")
         self.assertEqual(closeout.returncode, 0, closeout.stderr)
-        approved = self.run_harness("review-result", "mvp-001", "reviewer", "approved")
+        packet_hash = hashlib.sha256(
+            (self.harness / "current" / "closeout-packet.md").read_bytes()
+        ).hexdigest()
+        approved = self.run_harness(
+            "review-result",
+            "mvp-001",
+            "reviewer",
+            "approved",
+            "--reviewed-packet-sha256",
+            packet_hash,
+        )
         self.assertEqual(approved.returncode, 0, approved.stderr)
         done = self.run_harness("mark-done", "mvp-001", "operator")
         self.assertEqual(done.returncode, 0, done.stderr)
@@ -1706,6 +1727,694 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertIn("runtime authority problems", result.stderr)
         self.assertFalse((self.harness / "tasks" / "sub").exists())
         self.assertFalse((self.harness / "tasks" / "evil").exists())
+
+
+
+    PLAN_BODY = (
+        "# Plan\n\n"
+        "## Goal\n\nShip the feature.\n\n"
+        "## In Scope\n\n- core\n\n- tests\n\n"
+        "## Out Of Scope\n\n- polish\n\n"
+        "## Steps\n\n1. implement\n\n2. verify\n\n"
+        "## Verification\n\nRun the suite.\n\n"
+        "## Exit Criteria\n\nAll green.\n\n"
+        "## Handoff\n\nNext session continues.\n"
+    )
+
+    def sha(self, relpath: str) -> str:
+        return hashlib.sha256((self.harness / relpath).read_bytes()).hexdigest()
+
+    def start_review(self, item_id: str = "mvp-001", reviewer: str = "reviewer") -> str:
+        start = self.run_harness("start", item_id, "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+        requested = self.run_harness("review", item_id, reviewer)
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        return "current/review-packet.md"
+
+    def start_closeout(self, item_id: str = "mvp-001", reviewer: str = "reviewer") -> str:
+        start = self.run_harness("start", item_id, "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+        requested = self.run_harness("closeout", item_id, reviewer)
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        return "current/closeout-packet.md"
+
+    INNER_FENCE_PLAN = (
+        "# Plan\n\n"
+        "## Goal\n\nRun a script.\n\n"
+        "## In Scope\n\n- script\n\n"
+        "## Out Of Scope\n\n- none\n\n"
+        "## Steps\n\n1. write\n\n"
+        "## Verification\n\nRun:\n\n"
+        "```bash\n"
+        "echo ok\n"
+        "```\n\n"
+        "## Exit Criteria\n\nGreen.\n\n"
+        "## Handoff\n\nNext.\n"
+    )
+
+    def seed_item(self, item_id: str = "mvp-001", plan_body: str = PLAN_BODY) -> None:
+        self.write_checklist([base_item(item_id)])
+        self.write_plan(f"tasks/{item_id}/plan.md", plan_body)
+
+    def strip_freshness_section(self, packet_path: Path) -> None:
+        """Rewrite a packet without its top ## Freshness Metadata section."""
+        text = packet_path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        stripped: list[str] = []
+        skipping = False
+        for line in lines:
+            if line.strip() == "## Freshness Metadata":
+                skipping = True
+                continue
+            if skipping and line.strip().startswith("## "):
+                skipping = False
+            if not skipping:
+                stripped.append(line)
+        packet_path.write_text("\n".join(stripped).rstrip() + "\n", encoding="utf-8")
+
+    def test_packets_and_pointer_write_bounded_freshness_metadata(self) -> None:
+        self.seed_item()
+        plan_hash = self.sha("tasks/mvp-001/plan.md")
+
+        review_rel = self.start_review()
+        review = (self.harness / review_rel).read_text(encoding="utf-8")
+        self.assertLess(review.index("## Freshness Metadata"), review.index("```"))
+        prefix = review.split("```", 1)[0]
+        for field in ("generated_at", "source_plan_sha256", "canonical_plan_path", "checklist_item"):
+            self.assertRegex(prefix, rf"- {field}: `[^`]+`")
+        self.assertIn(f"- source_plan_sha256: `{plan_hash}`", prefix)
+        self.assertIn(
+            "- canonical_plan_path: `docs/project-harness/tasks/mvp-001/plan.md`", prefix
+        )
+        self.assertIn("- checklist_item: `mvp-001`", prefix)
+
+        closeout_rel = self.start_closeout()
+        closeout = (self.harness / closeout_rel).read_text(encoding="utf-8")
+        prefix = closeout.split("```", 1)[0]
+        self.assertIn("## Freshness Metadata", prefix)
+        self.assertIn(f"- source_plan_sha256: `{plan_hash}`", prefix)
+
+        synced = self.run_harness("sync", "mvp-001")
+        self.assertEqual(synced.returncode, 0, synced.stderr)
+        pointer = (self.harness / "current" / "task_plan.md").read_text(encoding="utf-8")
+        pointer_prefix = pointer.split("## Current Item", 1)[0]
+        self.assertIn("## Freshness Metadata", pointer_prefix)
+        self.assertIn(f"- source_plan_sha256: `{plan_hash}`", pointer_prefix)
+        self.assertIn("- checklist_item: `mvp-001`", pointer_prefix)
+
+    def test_verdict_requires_reviewer_hash_of_exact_packet_bytes(self) -> None:
+        self.seed_item()
+        self.start_review()
+        packet_hash = self.sha("current/review-packet.md")
+
+        missing = self.run_harness("review-result", "mvp-001", "reviewer", "approved")
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("--reviewed-packet-sha256", missing.stderr)
+
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        wrong = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", "0" * 64,
+        )
+        self.assertNotEqual(wrong.returncode, 0)
+        self.assertIn("does not match the current packet", wrong.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+        malformed = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", "not-a-hash",
+        )
+        self.assertNotEqual(malformed.returncode, 0)
+        self.assertIn("64 hex", malformed.stderr)
+
+        ok = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+            "--summary", "Looks good.",
+        )
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        review = self.read_checklist()["items"][0]["review"]
+        self.assertEqual(review["decision"], "approved")
+        self.assertEqual(review["reviewed_packet_sha256"], packet_hash)
+        self.assertEqual(review["source_plan_sha256"], self.sha("tasks/mvp-001/plan.md"))
+        self.assertEqual(
+            review["reviewed_packet_locator"],
+            "docs/project-harness/current/review-packet.md",
+        )
+        events = self.read_events()
+        self.assertEqual(events[-1]["metadata"]["reviewed_packet_sha256"], packet_hash)
+
+    def test_stale_plan_fails_closeout_verdict_and_validate_warns(self) -> None:
+        self.seed_item()
+        self.start_closeout()
+        packet_hash = self.sha("current/closeout-packet.md")
+        plan = self.harness / "tasks" / "mvp-001" / "plan.md"
+        plan.write_text(
+            plan.read_text(encoding="utf-8") + "\nNew requirement.\n", encoding="utf-8"
+        )
+
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertIn("WARN", validated.stdout)
+
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        denied = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("source_plan_sha256", denied.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+        self.assertIsNone(self.read_checklist()["items"][0].get("review", {}).get("decision"))
+
+    def test_packet_byte_change_invalidates_old_reviewer_hash(self) -> None:
+        self.seed_item()
+        self.start_closeout()
+        packet_path = self.harness / "current" / "closeout-packet.md"
+        packet_hash = hashlib.sha256(packet_path.read_bytes()).hexdigest()
+        with packet_path.open("a", encoding="utf-8") as handle:
+            handle.write("\n# trailing edit\n")
+
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        denied = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("does not match the current packet", denied.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+    def test_regenerated_packet_invalidates_old_reviewer_hash(self) -> None:
+        self.seed_item()
+        self.start_closeout()
+        first_hash = self.sha("current/closeout-packet.md")
+        first = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", first_hash,
+        )
+        self.assertEqual(first.returncode, 0, first.stderr)
+
+        plan = self.harness / "tasks" / "mvp-001" / "plan.md"
+        plan.write_text(
+            plan.read_text(encoding="utf-8") + "# revised\n", encoding="utf-8"
+        )
+        rerun = self.run_harness("closeout", "mvp-001", "reviewer")
+        self.assertEqual(rerun.returncode, 0, rerun.stderr)
+        self.assertIsNone(self.read_checklist()["items"][0]["review"]["decision"])
+        second_hash = self.sha("current/closeout-packet.md")
+        self.assertNotEqual(first_hash, second_hash)
+
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        denied = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", first_hash,
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("does not match the current packet", denied.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+        ok = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", second_hash,
+        )
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+
+    def test_header_hash_edit_with_stale_snapshot_fails(self) -> None:
+        self.seed_item()
+        self.start_closeout()
+        packet_path = self.harness / "current" / "closeout-packet.md"
+        old_hash = self.sha("tasks/mvp-001/plan.md")
+
+        plan = self.harness / "tasks" / "mvp-001" / "plan.md"
+        plan.write_text(
+            plan.read_text(encoding="utf-8") + "\nScope creep.\n", encoding="utf-8"
+        )
+        text = packet_path.read_text(encoding="utf-8")
+        tampered = text.replace(
+            f"- source_plan_sha256: `{old_hash}`",
+            f"- source_plan_sha256: `{self.sha('tasks/mvp-001/plan.md')}`",
+        )
+        self.assertNotEqual(tampered, text)
+        packet_path.write_text(tampered, encoding="utf-8")
+        reviewer_hash = hashlib.sha256(packet_path.read_bytes()).hexdigest()
+
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        denied = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", reviewer_hash,
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("snapshot", denied.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+    def test_packet_item_mismatch_fails_closed(self) -> None:
+        self.seed_item()
+        self.start_review()
+        packet_path = self.harness / "current" / "review-packet.md"
+        text = packet_path.read_text(encoding="utf-8")
+        packet_path.write_text(
+            text.replace("- checklist_item: `mvp-001`", "- checklist_item: `mvp-002`"),
+            encoding="utf-8",
+        )
+        reviewer_hash = hashlib.sha256(packet_path.read_bytes()).hexdigest()
+
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        denied = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", reviewer_hash,
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("checklist_item", denied.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+    def test_packet_plan_locator_mismatch_fails_closed(self) -> None:
+        self.seed_item()
+        self.write_plan("tasks/mvp-002/plan.md", self.PLAN_BODY)
+        self.start_review()
+        packet_path = self.harness / "current" / "review-packet.md"
+        text = packet_path.read_text(encoding="utf-8")
+        packet_path.write_text(
+            text.replace(
+                "- canonical_plan_path: `docs/project-harness/tasks/mvp-001/plan.md`",
+                "- canonical_plan_path: `docs/project-harness/tasks/mvp-002/plan.md`",
+            ),
+            encoding="utf-8",
+        )
+        reviewer_hash = hashlib.sha256(packet_path.read_bytes()).hexdigest()
+
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        denied = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", reviewer_hash,
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("canonical_plan_path", denied.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+    def test_legacy_packet_validate_warns_and_verdict_fails_closed(self) -> None:
+        self.seed_item()
+        self.start_review()
+        packet_path = self.harness / "current" / "review-packet.md"
+        self.strip_freshness_section(packet_path)
+        self.assertNotIn(
+            "## Freshness Metadata", packet_path.read_text(encoding="utf-8")
+        )
+        reviewer_hash = hashlib.sha256(packet_path.read_bytes()).hexdigest()
+
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertIn("legacy", validated.stdout)
+
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        denied = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", reviewer_hash,
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("legacy", denied.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+    def test_changes_requested_and_blocked_verdicts_require_freshness(self) -> None:
+        self.write_checklist([base_item("mvp-001"), base_item("mvp-002")])
+        self.write_plan("tasks/mvp-001/plan.md", self.PLAN_BODY)
+        self.write_plan("tasks/mvp-002/plan.md", self.PLAN_BODY)
+
+        # changes_requested binds the same freshness gate as approved
+        self.start_review()
+        first_hash = self.sha("current/review-packet.md")
+        requested = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "changes_requested",
+            "--reviewed-packet-sha256", first_hash,
+            "--summary", "Narrow the scope.",
+        )
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        self.assertEqual(
+            self.read_checklist()["items"][0]["workflow"]["status"], "changes_requested"
+        )
+
+        # stale packet fails changes_requested too (item 2)
+        self.start_review("mvp-002")
+        second_hash = self.sha("current/review-packet.md")
+        plan = self.harness / "tasks" / "mvp-002" / "plan.md"
+        plan.write_text(
+            plan.read_text(encoding="utf-8") + "\nPlan changed.\n", encoding="utf-8"
+        )
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        stale = self.run_harness(
+            "review-result", "mvp-002", "reviewer", "changes_requested",
+            "--reviewed-packet-sha256", second_hash,
+            "--summary", "Narrow the scope.",
+        )
+        self.assertNotEqual(stale.returncode, 0)
+        self.assertIn("source_plan_sha256", stale.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+        self.assertIsNone(self.read_checklist()["items"][1]["review"]["decision"])
+
+        # fresh packet + blocked verdict works
+        regenerated = self.run_harness("review", "mvp-002", "reviewer")
+        self.assertEqual(regenerated.returncode, 0, regenerated.stderr)
+        third_hash = self.sha("current/review-packet.md")
+        blocked = self.run_harness(
+            "review-result", "mvp-002", "reviewer", "blocked",
+            "--reviewed-packet-sha256", third_hash,
+            "--summary", "Blocked.",
+        )
+        self.assertEqual(blocked.returncode, 0, blocked.stderr)
+        item = self.read_checklist()["items"][1]
+        self.assertEqual(item["status"], "blocked")
+        self.assertEqual(item["review"]["decision"], "blocked")
+
+    def test_mark_done_rejects_plan_drift_after_approval(self) -> None:
+        self.seed_item()
+        self.start_closeout()
+        packet_hash = self.sha("current/closeout-packet.md")
+        approved = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+        )
+        self.assertEqual(approved.returncode, 0, approved.stderr)
+
+        plan = self.harness / "tasks" / "mvp-001" / "plan.md"
+        plan.write_text(
+            plan.read_text(encoding="utf-8") + "\nPost-approval change.\n", encoding="utf-8"
+        )
+        denied = self.run_harness("mark-done", "mvp-001", "operator")
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("source_plan_sha256", denied.stderr)
+        self.assertNotEqual(self.read_checklist()["items"][0]["status"], "done")
+
+        forced = self.run_harness(
+            "mark-done", "mvp-001", "operator", "--force",
+            "--reason", "human override after plan edit",
+        )
+        self.assertEqual(forced.returncode, 0, forced.stderr)
+        self.assertEqual(self.read_checklist()["items"][0]["status"], "done")
+        events = self.read_events()
+        self.assertEqual(
+            events[-1]["metadata"]["force_reason"], "human override after plan edit"
+        )
+
+    def test_mark_done_rejects_packet_drift_after_approval(self) -> None:
+        self.seed_item()
+        self.start_closeout()
+        packet_hash = self.sha("current/closeout-packet.md")
+        approved = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+        )
+        self.assertEqual(approved.returncode, 0, approved.stderr)
+
+        packet_path = self.harness / "current" / "closeout-packet.md"
+        with packet_path.open("a", encoding="utf-8") as handle:
+            handle.write("\n# drift\n")
+        denied = self.run_harness("mark-done", "mvp-001", "operator")
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("does not match the current packet", denied.stderr)
+        self.assertNotEqual(self.read_checklist()["items"][0]["status"], "done")
+
+    def test_fake_freshness_header_in_plan_does_not_fool_verifier(self) -> None:
+        fake_plan = (
+            self.PLAN_BODY
+            + "\n## Freshness Metadata\n\n"
+            + "- checklist_item: `evil-other`\n"
+            + "- source_plan_sha256: `" + "0" * 64 + "`\n"
+        )
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan("tasks/mvp-001/plan.md", fake_plan)
+        self.start_review()
+        packet_path = self.harness / "current" / "review-packet.md"
+        packet_hash = hashlib.sha256(packet_path.read_bytes()).hexdigest()
+
+        ok = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+        )
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+
+        # Re-enter review_requested so a second verdict can be attempted;
+        # the regenerated packet is byte-identical apart from generated_at.
+        re_requested = self.run_harness("review", "mvp-001", "reviewer")
+        self.assertEqual(re_requested.returncode, 0, re_requested.stderr)
+
+        self.strip_freshness_section(packet_path)
+        legacy_hash = hashlib.sha256(packet_path.read_bytes()).hexdigest()
+        denied = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", legacy_hash,
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("legacy", denied.stderr)
+
+    def test_pointer_freshness_validate_warns_but_sync_fixes(self) -> None:
+        self.seed_item()
+        start = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+
+        fresh = self.run_harness("validate")
+        self.assertEqual(fresh.returncode, 0, fresh.stderr)
+        self.assertNotIn("WARN", fresh.stdout)
+
+        plan = self.harness / "tasks" / "mvp-001" / "plan.md"
+        plan.write_text(
+            plan.read_text(encoding="utf-8") + "\nPointer drift.\n", encoding="utf-8"
+        )
+        stale = self.run_harness("validate")
+        self.assertEqual(stale.returncode, 0, stale.stderr)
+        self.assertIn("source_plan_sha256", stale.stdout)
+
+        synced = self.run_harness("sync", "mvp-001")
+        self.assertEqual(synced.returncode, 0, synced.stderr)
+        fixed = self.run_harness("validate")
+        self.assertEqual(fixed.returncode, 0, fixed.stderr)
+        self.assertNotIn("WARN", fixed.stdout)
+
+        # legacy pointer without metadata is readable but warns
+        (self.harness / "current" / "task_plan.md").write_text(
+            "# Current Task Pointer\n\n- Checklist item: `mvp-001`\n",
+            encoding="utf-8",
+        )
+        legacy = self.run_harness("validate")
+        self.assertEqual(legacy.returncode, 0, legacy.stderr)
+        self.assertIn("legacy", legacy.stdout)
+
+    def test_validate_warns_on_packet_drift_after_approval(self) -> None:
+        self.seed_item()
+        self.start_closeout()
+        packet_hash = self.sha("current/closeout-packet.md")
+        approved = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+        )
+        self.assertEqual(approved.returncode, 0, approved.stderr)
+
+        fresh = self.run_harness("validate")
+        self.assertEqual(fresh.returncode, 0, fresh.stderr)
+        self.assertNotIn("WARN", fresh.stdout)
+
+        plan = self.harness / "tasks" / "mvp-001" / "plan.md"
+        plan.write_text(
+            plan.read_text(encoding="utf-8") + "\nDrift after approval.\n", encoding="utf-8"
+        )
+        stale = self.run_harness("validate")
+        self.assertEqual(stale.returncode, 0, stale.stderr)
+        self.assertIn("source_plan_sha256", stale.stdout)
+
+    def test_validate_succeeds_when_derived_files_missing(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertNotIn("WARN", validated.stdout)
+
+    def test_review_result_fails_closed_outside_review_phases(self) -> None:
+        self.seed_item()
+        start = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        denied = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", "0" * 64,
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("review_requested or closeout_requested", denied.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+    def test_review_result_usage_documents_hash_flag(self) -> None:
+        result = self.run_harness("--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--reviewed-packet-sha256", result.stdout)
+
+    def test_plan_with_inner_fence_snapshot_framing_verdict_succeeds(self) -> None:
+        # addendum 1/2: a plan containing its own ```bash fence must be
+        # framed by a longer fence so a fresh packet verdict still passes.
+        self.seed_item(plan_body=self.INNER_FENCE_PLAN)
+        self.start_review()
+        packet = (self.harness / "current" / "review-packet.md").read_text(encoding="utf-8")
+        self.assertIn("````md\n", packet)
+        self.assertIn("\n````\n", packet)
+        packet_hash = self.sha("current/review-packet.md")
+        ok = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+        )
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertEqual(
+            self.read_checklist()["items"][0]["review"]["decision"], "approved"
+        )
+
+    def test_inner_fence_plan_header_edit_with_stale_snapshot_fails(self) -> None:
+        # addendum 1/2: with inner fences, editing only the header hash to the
+        # current value must still fail on the stale embedded snapshot.
+        self.seed_item(plan_body=self.INNER_FENCE_PLAN)
+        self.start_closeout()
+        packet_path = self.harness / "current" / "closeout-packet.md"
+        old_hash = self.sha("tasks/mvp-001/plan.md")
+        plan = self.harness / "tasks" / "mvp-001" / "plan.md"
+        plan.write_text(
+            plan.read_text(encoding="utf-8") + "\nNew step.\n", encoding="utf-8"
+        )
+        text = packet_path.read_text(encoding="utf-8")
+        tampered = text.replace(
+            f"- source_plan_sha256: `{old_hash}`",
+            f"- source_plan_sha256: `{self.sha('tasks/mvp-001/plan.md')}`",
+        )
+        self.assertNotEqual(tampered, text)
+        packet_path.write_text(tampered, encoding="utf-8")
+        reviewer_hash = hashlib.sha256(packet_path.read_bytes()).hexdigest()
+
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        denied = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", reviewer_hash,
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("snapshot", denied.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+    def test_duplicate_metadata_key_fails_closed_and_warns(self) -> None:
+        # addendum: a duplicate freshness key must not silently last-win; the
+        # packet verdict fails closed and validate warns (packet and pointer).
+        self.seed_item()
+        self.start_review()
+        packet_path = self.harness / "current" / "review-packet.md"
+        text = packet_path.read_text(encoding="utf-8")
+        packet_path.write_text(
+            text.replace(
+                "- checklist_item: `mvp-001`",
+                "- checklist_item: `mvp-002`\n- checklist_item: `mvp-001`",
+                1,
+            ),
+            encoding="utf-8",
+        )
+
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertIn("duplicate", validated.stdout)
+
+        reviewer_hash = hashlib.sha256(packet_path.read_bytes()).hexdigest()
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+        denied = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", reviewer_hash,
+        )
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertIn("duplicate", denied.stderr)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+        synced = self.run_harness("sync", "mvp-001")
+        self.assertEqual(synced.returncode, 0, synced.stderr)
+        pointer_path = self.harness / "current" / "task_plan.md"
+        pointer_text = pointer_path.read_text(encoding="utf-8")
+        pointer_path.write_text(
+            pointer_text.replace(
+                "- checklist_item: `mvp-001`",
+                "- checklist_item: `mvp-002`\n- checklist_item: `mvp-001`",
+                1,
+            ),
+            encoding="utf-8",
+        )
+        dup_pointer = self.run_harness("validate")
+        self.assertEqual(dup_pointer.returncode, 0, dup_pointer.stderr)
+        self.assertIn("duplicate", dup_pointer.stdout)
+
+    def test_pointer_body_metadata_item_mismatch_warns(self) -> None:
+        # addendum: validate compares the pointer body item with the top
+        # freshness metadata checklist_item and warns on mismatch.
+        self.seed_item()
+        start = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+        pointer_path = self.harness / "current" / "task_plan.md"
+        text = pointer_path.read_text(encoding="utf-8")
+        pointer_path.write_text(
+            text.replace(
+                "- Checklist item: `mvp-001`", "- Checklist item: `mvp-002`", 1
+            ),
+            encoding="utf-8",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertIn("differs", validated.stdout)
+
+    def test_acceptance_fence_before_plan_section_verdict_succeeds(self) -> None:
+        # operator correction: a fenced block inside Acceptance (which is
+        # emitted before the ## Canonical Plan Content heading) must not be
+        # mistaken for the plan snapshot opening fence.
+        self.write_checklist(
+            [base_item("mvp-001", acceptance="Acceptance:\n\n```\ncode\n```\n")]
+        )
+        self.write_plan("tasks/mvp-001/plan.md", self.PLAN_BODY)
+        self.start_review()
+        packet = (self.harness / "current" / "review-packet.md").read_text(encoding="utf-8")
+        self.assertLess(
+            packet.index("## Acceptance"), packet.index("## Canonical Plan Content")
+        )
+        packet_hash = self.sha("current/review-packet.md")
+        ok = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+        )
+        self.assertEqual(ok.returncode, 0, ok.stderr)
+        self.assertEqual(
+            self.read_checklist()["items"][0]["review"]["decision"], "approved"
+        )
+
+    def test_pointer_unparseable_body_warns(self) -> None:
+        # operator correction: a pointer whose Current Item body line cannot
+        # be parsed must warn on validate, not silently return.
+        self.seed_item()
+        start = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(start.returncode, 0, start.stderr)
+        pointer_path = self.harness / "current" / "task_plan.md"
+        text = pointer_path.read_text(encoding="utf-8")
+        pointer_path.write_text(
+            text.replace(
+                "- Checklist item: `mvp-001`", "- Checklist item: mvp-001", 1
+            ),
+            encoding="utf-8",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertIn("parseable", validated.stdout)
+
+    def test_validate_clean_after_mark_done_cleared_pointer(self) -> None:
+        # final correction: clear_current_pointer writes `- Checklist item:
+        # null` without backticks; validate must not warn on the cleared
+        # pointer after a normal closeout/review-result/mark-done.
+        self.seed_item()
+        self.start_closeout()
+        packet_hash = self.sha("current/closeout-packet.md")
+        approved = self.run_harness(
+            "review-result", "mvp-001", "reviewer", "approved",
+            "--reviewed-packet-sha256", packet_hash,
+        )
+        self.assertEqual(approved.returncode, 0, approved.stderr)
+        done = self.run_harness("mark-done", "mvp-001", "operator")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        pointer = (self.harness / "current" / "task_plan.md").read_text(encoding="utf-8")
+        self.assertIn("- Checklist item: null", pointer)
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertNotIn("WARN", validated.stdout)
 
 
 if __name__ == "__main__":

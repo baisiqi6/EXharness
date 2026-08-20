@@ -477,6 +477,8 @@ active）。从旧名切换到新名运行 `harnessctl migrate-checklist`（同�
 
 多 agent 兼容扩展字段（推荐）：`workflow`（assigned/running/closeout_requested/changes_requested/closed）、`lease`（acquired_at/expires_at/ttl_minutes）、`artifacts`（plan/handoff_packet/review_packet/closeout_packet/branch/pr）、`review`（decision 取 approved/changes_requested/blocked/null；freshness evidence 为 `reviewed_packet_sha256`、`source_plan_sha256`、`reviewed_packet_locator`，由 `review-result` 写入）。
 
+**机器时间戳契约**：runtime 自动写入的 machine timestamp——checklist root/item/workflow/review 的 `updated_at`、packet 的 `Updated at`、activate 自动 scaffold 的 plan `Updated at`——一律使用完整 UTC ISO-8601 `YYYY-MM-DDTHH:MM:SSZ`（`harness_common.iso_z()`），保证可比较且时区语义唯一。legacy `YYYY-MM-DD` 继续被 validator 接受、可正常读取，历史节点不会被全量重写。人类叙述性日期（如 Session Log 的 `### YYYY-MM-DD` 标题、packet 正文中的自然语言日期）按本地语境保留，不强制机器化。
+
 Branch 字段协议：`workflow.branch` 是工作分支，通常由 `git.branch_namespace` 生成；`artifacts.branch` 与其保持一致；`artifacts.pr` 是 PR 链接；远程 agent 不得改非自己 namespace 下的 branch，除非 human 明确授权。
 
 ### GitHub-backed 团队协作 profile

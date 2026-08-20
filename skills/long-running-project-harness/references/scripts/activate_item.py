@@ -28,7 +28,7 @@ from harness_common import (
     require_item,
     resolve_item_plan,
     safe_item_id_problem,
-    today,
+    iso_z,
     unfinished_dependencies,
     utc_now,
     validate_checklist,
@@ -45,7 +45,7 @@ PLAN_TEMPLATE = """# {title}
 - Checklist item: `{item_id}`
 - Owner: `{owner}`
 - Session: `{session}`
-- Updated at: `{today}`
+- Updated at: `{updated_at}`
 
 ## Goal
 
@@ -108,7 +108,7 @@ def ensure_plan_file(item: dict, owner: str, session: str) -> Path:
                 title=item["title"],
                 owner=owner,
                 session=session,
-                today=today(),
+                updated_at=iso_z(),
                 acceptance=item.get("acceptance", "待补充"),
                 verification=item.get("verification", "待补充"),
             ),
@@ -233,9 +233,9 @@ def main() -> int:
         item["status"] = "doing"
         item["owner"] = args.owner
         item["selected_in_session"] = args.session
-        item["updated_at"] = today()
+        item["updated_at"] = iso_z()
         workflow["status"] = "running"
-        workflow["updated_at"] = today()
+        workflow["updated_at"] = iso_z()
         workflow["branch"] = branch
         claim_lease(item, args.owner, args.session, args.lease_minutes)
 

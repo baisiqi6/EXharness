@@ -24,7 +24,7 @@ from harness_common import (
     require_item,
     resolve_checklist,
     safe_item_id_problem,
-    today,
+    iso_z,
     deployment_profile,
     require_standalone_mutation,
     validate_checklist,
@@ -107,7 +107,7 @@ def do_add_item(args: argparse.Namespace) -> int:
             "priority": args.priority,
             "owner": None,
             "selected_in_session": None,
-            "updated_at": today(),
+            "updated_at": iso_z(),
             "dependencies": dependencies,
             "blocked_by": [],
             "blocked_reason": None,
@@ -177,6 +177,11 @@ def do_update_item(args: argparse.Namespace) -> int:
 
         if stored_plan is not None:
             _set_plan_locator(item, stored_plan)
+
+        # The callback only runs when at least one modification flag was
+        # passed (pre-checked above), so the item content always changed;
+        # refresh its machine evidence timestamp.
+        item["updated_at"] = iso_z()
 
     mutate_checklist(callback)
     print(f"Updated checklist item: {item_id}")

@@ -3483,6 +3483,362 @@ class HarnessRuntimeTests(unittest.TestCase):
                 "--mode ordinary|high-risk", template.read_text(encoding="utf-8")
             )
 
+    # --- Issue #12: worktree awareness ------------------------------------
+
+    def load_session_init(self):
+        """Load the instantiated session_init module in-process (parser and
+        decision helpers are pure functions; the script directory is on
+        sys.path only during load). The real module names the script imports
+        are temporarily removed so the instantiated copies from THIS test's
+        script_dir are used, then restored to avoid cross-test sys.modules
+        pollution (each test gets its own tempdir)."""
+        real_names = ("build_harness_state", "harness_common", "validate_checklist")
+        saved = {name: sys.modules.pop(name, None) for name in real_names}
+        sys.path.insert(0, str(self.script_dir))
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "session_init_under_test", self.script_dir / "session_init.py"
+            )
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+            return module
+        finally:
+            sys.path.remove(str(self.script_dir))
+            for name, previous in saved.items():
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+    def init_git_repo(self, directory: Path) -> None:
+        """Test-local git fixture: explicit main, local identity, one commit.
+        Never depends on global git config or the default branch name."""
+        subprocess.run(
+            ["git", "init", "-b", "main", str(directory)],
+            check=True,
+            capture_output=True,
+        )
+        for key, value in (
+            ("user.name", "fixture"),
+            ("user.email", "fixture@example.com"),
+            ("commit.gpgsign", "false"),
+        ):
+            subprocess.run(
+                ["git", "-C", str(directory), "config", key, value],
+                check=True,
+                capture_output=True,
+            )
+        (directory / "tracked.txt").write_text("fixture\n", encoding="utf-8")
+        subprocess.run(
+            ["git", "-C", str(directory), "add", "tracked.txt"],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(directory), "commit", "-m", "fixture commit"],
+            check=True,
+            capture_output=True,
+        )
+
+    def test_parse_worktree_porcelain_stanzas_valueless_and_spaced_values(self) -> None:
+        mod = self.load_session_init()
+        raw = (
+            "worktree /repo\x00HEAD abc123\x00branch refs/heads/main\x00\x00"
+            "worktree /repo linked wt\x00HEAD def456\x00detached\x00"
+            "prunable gitdir file points to non-existent location\x00\x00"
+            "worktree C:\\worktrees\\wt 2\x00HEAD 000111\x00bare\x00"
+            "locked held by another process\x00\x00"
+        )
+        entries = mod.parse_worktree_porcelain(raw)
+        self.assertEqual(len(entries), 3)
+        first, second, third = entries
+        self.assertEqual(first.path, "/repo")
+        self.assertEqual(first.head, "abc123")
+        self.assertEqual(first.branch, "main")
+        self.assertFalse(first.detached)
+        self.assertFalse(first.bare)
+        self.assertIsNone(first.prunable_reason)
+        self.assertIsNone(first.locked_reason)
+        self.assertEqual(second.path, "/repo linked wt")
+        self.assertIsNone(second.branch)  # detached -> no branch field
+        self.assertTrue(second.detached)
+        self.assertTrue(second.prunable)
+        self.assertEqual(
+            second.prunable_reason, "gitdir file points to non-existent location"
+        )
+        self.assertEqual(third.path, "C:\\worktrees\\wt 2")
+        self.assertTrue(third.bare)
+        self.assertTrue(third.locked)
+        self.assertEqual(third.locked_reason, "held by another process")
+
+    def test_parse_worktree_porcelain_cjk_path_kept_whole(self) -> None:
+        mod = self.load_session_init()
+        raw = (
+            "worktree /Users/测试/项目 目录\x00HEAD abc123\x00"
+            "branch refs/heads/main\x00\x00"
+        )
+        entries = mod.parse_worktree_porcelain(raw)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0].path, "/Users/测试/项目 目录")
+        self.assertEqual(entries[0].branch, "main")
+
+    def test_short_branch_name_strips_exact_prefix_only(self) -> None:
+        mod = self.load_session_init()
+        self.assertEqual(mod.short_branch_name("refs/heads/main"), "main")
+        self.assertEqual(
+            mod.short_branch_name("refs/heads/agent/codex/mvp-001"),
+            "agent/codex/mvp-001",
+        )
+        # exact refs/heads/ prefix only: nothing else is mangled
+        self.assertEqual(
+            mod.short_branch_name("refs/remotes/origin/main"),
+            "refs/remotes/origin/main",
+        )
+        self.assertEqual(
+            mod.short_branch_name("refs/headsX/main"), "refs/headsX/main"
+        )
+
+    def test_canonical_path_normalizes_symlinks_and_consults_normcase(self) -> None:
+        mod = self.load_session_init()
+        var = Path("/var")
+        private_var = Path("/private/var")
+        if var.exists() and private_var.exists():
+            self.assertEqual(
+                mod.canonical_path("/var"), mod.canonical_path("/private/var")
+            )
+        # normcase is mocked so POSIX identity does not fake Windows evidence
+        with mock.patch.object(mod, "_normcase", side_effect=lambda p: p.upper()):
+            self.assertEqual(mod.canonical_path("/Repo/WT"), "/REPO/WT")
+
+    def test_worktree_decision_unique_current_match_no_recommendation(self) -> None:
+        mod = self.load_session_init()
+        root = self.project / "repo"
+        root.mkdir()
+        entries = [mod.WorktreeEntry(path=str(root), branch="agent/codex/mvp-001")]
+        lines = mod.worktree_report_lines(entries, "agent/codex/mvp-001", root, "main")
+        self.assertTrue(
+            any(
+                l.startswith("Active item worktree:") and str(root) in l
+                for l in lines
+            )
+        )
+        self.assertTrue(any("base=main" in l for l in lines))
+        self.assertFalse(any(l.startswith("Recommendation:") for l in lines))
+
+    def test_worktree_decision_unique_other_match_recommends_switch(self) -> None:
+        mod = self.load_session_init()
+        root = self.project / "repo"
+        other = self.project / "wt other"
+        root.mkdir()
+        other.mkdir()
+        entries = [
+            mod.WorktreeEntry(path=str(root), branch="main"),
+            mod.WorktreeEntry(path=str(other), branch="agent/codex/mvp-001"),
+        ]
+        lines = mod.worktree_report_lines(entries, "agent/codex/mvp-001", root, "main")
+        self.assertTrue(
+            any(
+                l.startswith("Active item worktree:") and str(other) in l
+                for l in lines
+            )
+        )
+        self.assertTrue(
+            any(l.startswith("Recommendation:") and str(other) in l for l in lines)
+        )
+
+    def test_worktree_decision_no_match_warns_without_picking_path(self) -> None:
+        mod = self.load_session_init()
+        root = self.project / "repo"
+        root.mkdir()
+        entries = [mod.WorktreeEntry(path=str(root), branch="main")]
+        lines = mod.worktree_report_lines(entries, "agent/codex/mvp-001", root, "main")
+        self.assertTrue(any("WARNING" in l and "no worktree" in l for l in lines))
+        self.assertFalse(any(l.startswith("Active item worktree:") for l in lines))
+
+    def test_worktree_decision_multiple_matches_refuses_to_choose(self) -> None:
+        mod = self.load_session_init()
+        root = self.project / "repo"
+        one = self.project / "wt-one"
+        two = self.project / "wt-two"
+        for directory in (root, one, two):
+            directory.mkdir()
+        entries = [
+            mod.WorktreeEntry(path=str(root), branch="main"),
+            mod.WorktreeEntry(path=str(one), branch="agent/codex/mvp-001"),
+            mod.WorktreeEntry(path=str(two), branch="agent/codex/mvp-001"),
+        ]
+        lines = mod.worktree_report_lines(entries, "agent/codex/mvp-001", root, "main")
+        self.assertTrue(any("multiple worktrees" in l for l in lines))
+        self.assertTrue(any("Refusing to choose" in l for l in lines))
+        self.assertFalse(any(l.startswith("Active item worktree:") for l in lines))
+
+    def test_worktree_decision_prunable_match_never_active(self) -> None:
+        mod = self.load_session_init()
+        root = self.project / "repo"
+        stale = self.project / "wt-stale"
+        root.mkdir()
+        stale.mkdir()
+        entries = [
+            mod.WorktreeEntry(
+                path=str(stale),
+                branch="agent/codex/mvp-001",
+                prunable_reason="gitdir file points to non-existent location",
+            )
+        ]
+        lines = mod.worktree_report_lines(entries, "agent/codex/mvp-001", root, "main")
+        self.assertFalse(any(l.startswith("Active item worktree:") for l in lines))
+        self.assertTrue(any("prunable" in l and "not active" in l for l in lines))
+
+    def test_worktree_decision_missing_path_match_degrades_to_warning(self) -> None:
+        mod = self.load_session_init()
+        root = self.project / "repo"
+        root.mkdir()
+        missing = self.project / "wt-gone"  # deliberately never created
+        entries = [mod.WorktreeEntry(path=str(missing), branch="agent/codex/mvp-001")]
+        lines = mod.worktree_report_lines(entries, "agent/codex/mvp-001", root, "main")
+        self.assertFalse(any(l.startswith("Active item worktree:") for l in lines))
+        self.assertTrue(any("unavailable" in l for l in lines))
+
+    def test_worktree_decision_locked_candidate_annotated_but_locatable(self) -> None:
+        mod = self.load_session_init()
+        root = self.project / "repo"
+        other = self.project / "wt-locked"
+        root.mkdir()
+        other.mkdir()
+        entries = [
+            mod.WorktreeEntry(path=str(root), branch="main"),
+            mod.WorktreeEntry(
+                path=str(other),
+                branch="agent/codex/mvp-001",
+                locked_reason="held by another process",
+            ),
+        ]
+        lines = mod.worktree_report_lines(entries, "agent/codex/mvp-001", root, "main")
+        active = next(l for l in lines if l.startswith("Active item worktree:"))
+        self.assertIn("locked", active)
+        self.assertIn("held by another process", active)
+        self.assertTrue(any(l.startswith("Recommendation:") for l in lines))
+
+    def test_worktree_decision_no_item_branch_reports_context_only(self) -> None:
+        mod = self.load_session_init()
+        root = self.project / "repo"
+        root.mkdir()
+        entries = [mod.WorktreeEntry(path=str(root), branch="main")]
+        lines = mod.worktree_report_lines(entries, None, root, "main")
+        self.assertTrue(any(l.startswith("Worktree:") for l in lines))
+        self.assertFalse(any("WARNING" in l for l in lines))
+        self.assertFalse(any(l.startswith("Active item worktree:") for l in lines))
+
+    def test_worktree_decision_detached_current_entry_reported(self) -> None:
+        mod = self.load_session_init()
+        root = self.project / "repo"
+        root.mkdir()
+        entries = [mod.WorktreeEntry(path=str(root), detached=True)]
+        lines = mod.worktree_report_lines(entries, None, root, "main")
+        self.assertTrue(any("detached" in l for l in lines))
+
+    def test_discover_worktrees_missing_git_binary_is_non_gating(self) -> None:
+        mod = self.load_session_init()
+        with mock.patch.object(
+            mod.subprocess, "run", side_effect=FileNotFoundError("git")
+        ):
+            entries, reason = mod.discover_worktrees(self.project)
+        self.assertIsNone(entries)
+        self.assertTrue(reason)
+        with mock.patch.object(
+            mod.subprocess, "run", side_effect=FileNotFoundError("git")
+        ):
+            lines = mod.worktree_report(self.project, "agent/codex/mvp-001", {})
+        self.assertEqual(lines, [])
+
+    def test_discover_worktrees_nonzero_exit_is_non_gating(self) -> None:
+        mod = self.load_session_init()
+        fake = subprocess.CompletedProcess(
+            args=[],
+            returncode=128,
+            stdout="",
+            stderr="fatal: not a git repository",
+        )
+        with mock.patch.object(mod.subprocess, "run", return_value=fake):
+            entries, reason = mod.discover_worktrees(self.project)
+        self.assertIsNone(entries)
+        self.assertIn("not a git repository", reason)
+
+    def test_session_init_non_git_reports_no_worktree_diagnostic(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        started = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        result = self.run_harness("session-init")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Worktree Discovery", result.stdout)
+        self.assertNotIn("Active item worktree", result.stdout)
+
+    def test_session_init_git_current_branch_match_no_recommendation(self) -> None:
+        self.init_git_repo(self.project)
+        self.write_checklist([base_item("mvp-001")])
+        started = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        subprocess.run(
+            ["git", "-C", str(self.project), "switch", "-c", "agent/codex/mvp-001"],
+            check=True,
+            capture_output=True,
+        )
+        result = self.run_harness("session-init")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Worktree Discovery", result.stdout)
+        self.assertIn("Active item worktree:", result.stdout)
+        self.assertIn(str(self.project), result.stdout)
+        self.assertIn("base=main", result.stdout)
+        self.assertNotIn("Recommendation:", result.stdout)
+        self.assertNotIn("WARNING", result.stdout)
+
+    def test_session_init_git_linked_worktree_match_recommends_switch(self) -> None:
+        self.init_git_repo(self.project)
+        self.write_checklist([base_item("mvp-001")])
+        started = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        with tempfile.TemporaryDirectory() as wt_area:
+            other = Path(wt_area) / "wt mvp-001"
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(self.project),
+                    "worktree",
+                    "add",
+                    "-b",
+                    "agent/codex/mvp-001",
+                    str(other),
+                ],
+                check=True,
+                capture_output=True,
+            )
+            result = self.run_harness("session-init")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("Active item worktree:", result.stdout)
+            self.assertIn(str(other), result.stdout)
+            self.assertIn("Recommendation:", result.stdout)
+
+    def test_session_init_git_no_match_warns_but_exit_stays_clean(self) -> None:
+        self.init_git_repo(self.project)
+        self.write_checklist([base_item("mvp-001")])
+        started = self.run_harness("start", "mvp-001", "codex", "codex-1")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        result = self.run_harness("session-init")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("WARNING", result.stdout)
+        self.assertIn("no worktree", result.stdout)
+
+    def test_session_init_git_reports_context_without_item_branch(self) -> None:
+        self.init_git_repo(self.project)
+        self.write_checklist([base_item("mvp-001")])
+        result = self.run_harness("session-init")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Worktree Discovery", result.stdout)
+        self.assertIn("branch=main", result.stdout)
+        self.assertNotIn("WARNING", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -356,6 +356,8 @@ scripts/harness/harnessctl session-init
 
 它推荐至少做：确认当前工作目录和 harness root；刷新 `harness-state.json`；读取当前 checklist、`progress.md`、`current/task_plan.md` 的最小摘要；执行 checklist 校验；运行 `harness-config.json` 中配置的最小回归检查；如果发现环境已坏，优先暴露这个事实，而不是直接开始新功能。
 
+session-init 还会做一次只读的 `git worktree list --porcelain -z` 发现（issue #12）：当 current item 有 `workflow.branch` 时，从 Git 已有事实中定位该 branch 的活跃 worktree —— 唯一可用匹配输出 `Active item worktree: <path>`（非当前 worktree 时附 switch recommendation）；0 匹配或多匹配输出明确 WARNING，绝不猜测路径、绝不创建/切换 worktree；prunable 或 path 已不存在的 entry 永远不会被称为 active，locked entry 会标注但仍可定位。Git 不可用（非 Git 项目、git 缺失、非零退出或发现异常）时保持原有行为，发现结果只作为 ephemeral 诊断输出，不写入 state，也不改变 session-init 的失败语义。
+
 注意：这是 runtime harness，不是 orchestration system；作用是让新 session 有确定性开头，不是自动替用户做所有决策。脚本可以提供本地 lease 护栏，但跨主机的全局互斥仍应由 coordinator 或 Git/GitHub workflow 执行。
 
 ## 运行层脚本模板

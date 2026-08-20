@@ -104,6 +104,7 @@ def main() -> int:
 3. 是否越过 architecture 模块边界
 4. 是否偷偷吸收了未来 checklist item 的工作
 5. 当前验证方式是否足以支持结束本轮
+6. 跨 item 引用是否使用显式语法（`item:<id>` / `tasks/<id>/plan.md`）并指向现有节点
 """
 
     write_text(packet_path, body + "\n")

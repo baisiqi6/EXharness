@@ -553,6 +553,20 @@ scripts/harness/harnessctl validate
 脚本只读取和校验 JSON，不会修改文件。它检查必填字段、顶层字段类型、`status`、`priority`、`doing`
 ownership、`done` verification，以及 `dependencies` / `blocked_by` 引用是否存在。
 
+### 显式 item 引用 lint（I10）
+
+`harnessctl validate` 还会在 JSON/locator/freshness 检查后，对 canonical harness root 下的 `.md`
+文件做 warning-only 的显式 item 引用 lint，未知 ID 只输出 `WARN:`，不改变退出码、不阻止 mutation：
+
+- 覆盖三种显式形式：inline code `` `item:<id>` ``（反引号内支持含空格 ID）、裸 `item:<token>`
+  （只支持不含空白的 ID，剥句末标点与 `*` / `**` emphasis 标记；underscore emphasis 不属 V1
+  grammar，尾随 `_` 保留在 candidate 中）、canonical plan 路径 `tasks/<id>/plan.md`
+  （带 harness 前缀的 `docs/project-harness/tasks/<id>/plan.md` 同样识别）。
+- 不猜任意 prose：历史裸 ID（如 `mvp-999` 不带前缀）不覆盖；fenced code block 内容不扫描；
+  占位符 `item:<id>` / `tasks/<id>/plan.md` 忽略；不含显式 grammar 的 URL、命令与空 `item:` 不误报
+  （URL 中真正含 `tasks/<id>/plan.md` 的仍会 lint）。
+- 新计划中的跨 item 引用请使用上述显式语法（模板已要求），让漂移可被机械发现。
+
 ## 任务级材料
 
 high-risk 或显式需要跨 session 自动恢复时，可以在唯一选定的 task artifact root 下增加：

@@ -231,6 +231,9 @@ EOF
         # derived-artifact freshness is warning-only here; verdict/closeout
         # gates fail closed separately (review-result / mark-done)
         python3 "$SCRIPT_DIR/harness_common.py" --check-derived-freshness "$CHECKLIST_PATH"
+        # explicit item reference lint (issue #10) is warning-only too:
+        # unknown refs in canonical markdown never block validate
+        python3 "$SCRIPT_DIR/harness_common.py" --check-item-refs "$CHECKLIST_PATH"
         ;;
     doctor)
         echo "=== Harness Doctor ==="

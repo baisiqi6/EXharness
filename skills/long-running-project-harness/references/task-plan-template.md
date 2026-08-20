@@ -9,6 +9,12 @@
 > 一个 item 的 canonical plan 只允许一个 locator 答案（`plan_path` 或 `artifacts.plan`
 > 之一，或两者标准化后相同），冲突时 runtime fail closed；已存在的 locator 指向缺失
 > 文件时 `start` 会失败，不会偷偷重建默认 plan。
+>
+> **跨 item 引用显式语法（I10）**：计划正文里提到其他 checklist item 时必须使用显式引用，
+> `harnessctl validate` 会 lint 未知 ID（只 `WARN`，不阻止 mutation）：
+> - 推荐 inline code 形式 `` `item:<exact-id>` ``（反引号内支持含空格 ID）；
+> - 或 canonical plan 路径 `tasks/<id>/plan.md`；
+> - 裸 `item:<token>` 只支持不含空白的 ID；示例、命令请放进 fenced code block，避免误报。
 
 推荐落点：
 

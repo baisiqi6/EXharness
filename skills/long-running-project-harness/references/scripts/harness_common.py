@@ -827,6 +827,154 @@ def derived_freshness_warnings(checklist: dict[str, Any]) -> list[str]:
     return warnings
 
 
+# Explicit item reference lint (issue #10): `harnessctl validate` scans
+# canonical .md files under the harness root for explicit references to
+# checklist items and warns (never fails) on unknown ids. The V1 grammar is
+# deliberately finite and low-noise: `item:<id>` inline code spans (spaces
+# allowed), bare item:<token> (non-whitespace, trailing sentence punctuation
+# stripped), and tasks/<id>/plan.md path segments (spaces allowed). Bare
+# prose ids and fenced code examples are never guessed. Placeholder forms
+# (`item:<id>` / `tasks/<id>/plan.md`) are skipped.
+# Trailing Markdown punctuation stripped from bare candidates: sentence
+# punctuation plus the '*' emphasis marker, so *item:mvp-001* and
+# **item:mvp-001** do not swallow the emphasis chars into the id.
+# Underscore emphasis is deliberately outside the V1 grammar: a trailing
+# '_' stays part of the candidate, so bare ids like mvp_001_ resolve
+# normally (only the inline code span promises punctuation-exact ids).
+_ITEM_REF_TRAILING_PUNCT = ".,;:!?)]}\"'*"
+
+_ITEM_REF_KIND_LABELS = {
+    "inline": "inline item reference",
+    "bare": "bare item reference",
+    "path": "plan path reference",
+}
+
+
+def _is_item_ref_placeholder(candidate: str) -> bool:
+    """Angle-bracket forms (<id>, <item-id>) are examples, not references."""
+    return candidate.startswith("<") and candidate.endswith(">")
+
+
+def _strip_fenced_blocks(text: str) -> str:
+    """Remove backtick and tilde fenced code blocks (content is not project
+    fact). A closing fence needs the same char with at least the opening
+    run length and no info string; fence content cannot reopen a fence."""
+    lines = text.splitlines()
+    out: list[str] = []
+    fence_char: str | None = None
+    fence_len = 0
+    for line in lines:
+        stripped = line.strip()
+        if fence_char is None:
+            if stripped.startswith("```"):
+                fence_char = "`"
+                fence_len = len(stripped) - len(stripped.lstrip("`"))
+                continue
+            if stripped.startswith("~~~"):
+                fence_char = "~"
+                fence_len = len(stripped) - len(stripped.lstrip("~"))
+                continue
+            out.append(line)
+            continue
+        if stripped.startswith(fence_char):
+            run = len(stripped) - len(stripped.lstrip(fence_char))
+            if run >= fence_len and (not stripped[run:] or stripped[run:].isspace()):
+                fence_char = None
+        # lines inside a fence are dropped
+    return "\n".join(out)
+
+
+def _item_ref_candidates(text: str) -> list[tuple[str, str]]:
+    """Explicit item reference candidates in markdown text as
+    (candidate, kind) pairs; kind is inline (code span), bare (prose
+    token), or path (tasks/<id>/plan.md)."""
+    candidates: list[tuple[str, str]] = []
+    unfenced = _strip_fenced_blocks(text)
+
+    # inline code span: the backtick is the terminator, so safe ids with
+    # spaces/punctuation are representable
+    for match in re.finditer(r"`item:([^`]*)`", unfenced):
+        candidate = match.group(1).strip()
+        if candidate and not _is_item_ref_placeholder(candidate):
+            candidates.append((candidate, "inline"))
+
+    # bare token: non-whitespace, sentence punctuation stripped; spans are
+    # masked so an `item:x` span never also fires the bare scanner
+    no_spans = re.sub(r"`[^`]*`", "", unfenced)
+    for match in re.finditer(r"(?<![A-Za-z0-9_/])item:([^\s`]+)", no_spans):
+        raw = match.group(1)
+        if _is_item_ref_placeholder(raw):
+            continue
+        candidate = raw.rstrip(_ITEM_REF_TRAILING_PUNCT)
+        if candidate and not _is_item_ref_placeholder(candidate):
+            candidates.append((candidate, "bare"))
+
+    # canonical task path: the fixed /plan.md terminator ends the id
+    # segment, so ids with spaces are representable; bare and
+    # harness-prefixed (docs/project-harness/tasks/...) forms both match.
+    # The preceding boundary excludes word chars and '-', so
+    # my-tasks/<id>/plan.md is not a canonical task path.
+    for match in re.finditer(r"(?<![A-Za-z0-9_-])tasks/([^/\n]*?)/plan\.md", unfenced):
+        candidate = match.group(1).strip()
+        if candidate and not _is_item_ref_placeholder(candidate):
+            candidates.append((candidate, "path"))
+
+    return candidates
+
+
+def explicit_item_reference_warnings(checklist: dict[str, Any], root: Path) -> list[str]:
+    """Issue #10: warning-only lint for explicit checklist item references
+    in canonical markdown under the harness root.
+
+    Known ids come from the checklist; unknown explicit references warn with
+    (relative path, candidate, kind). Symlinks are never followed; a file
+    that cannot be read as UTF-8 yields at most one bounded warning and no
+    candidate guessing; unexpected (non-I/O) failures propagate so the
+    caller exits nonzero.
+    """
+    known_ids = {
+        str(item["id"])
+        for item in checklist.get("items", [])
+        if isinstance(item, dict)
+        and isinstance(item.get("id"), str)
+        and item["id"].strip()
+    }
+    findings: set[tuple[str, str, str]] = set()
+    if not root.is_dir():
+        return []
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = sorted(dirnames)
+        for name in sorted(filenames):
+            if not name.endswith(".md"):
+                continue
+            full = Path(dirpath) / name
+            if full.is_symlink():
+                continue  # never follow symlinked markdown
+            try:
+                if not stat_module.S_ISREG(full.stat().st_mode):
+                    continue
+            except OSError:
+                findings.add((rel(full), "", ""))
+                continue
+            try:
+                text = full.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                findings.add((rel(full), "", ""))
+                continue
+            for candidate, kind in _item_ref_candidates(text):
+                if candidate not in known_ids:
+                    findings.add((rel(full), candidate, kind))
+    warnings: list[str] = []
+    for rel_path, candidate, kind in sorted(findings):
+        if kind == "":
+            warnings.append(f"{rel_path}: unreadable, skipped")
+        else:
+            warnings.append(
+                f"{rel_path}: unknown {_ITEM_REF_KIND_LABELS[kind]} {candidate!r}"
+            )
+    return warnings
+
+
 def config_path() -> Path:
     return harness_root() / "harness-config.json"
 
@@ -1135,6 +1283,15 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--check-item-refs",
+        metavar="PATH",
+        help=(
+            "Warning-only explicit item reference lint (issue #10) over "
+            "canonical .md files under the harness root; unknown refs print "
+            "WARN and always exit 0 on readable checklists."
+        ),
+    )
+    parser.add_argument(
         "--doctor-doing-plan",
         metavar="PATH",
         help=(
@@ -1171,6 +1328,24 @@ def main() -> int:
             print(f"ERROR: could not read checklist: {exc}", file=sys.stderr)
             return 2
         for warning in derived_freshness_warnings(data):
+            print(f"WARN: {warning}")
+        return 0
+    if args.check_item_refs:
+        try:
+            with open(args.check_item_refs, encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"ERROR: could not read checklist: {exc}", file=sys.stderr)
+            return 2
+        root = harness_root()
+        if Path(args.check_item_refs).resolve().parent != root.resolve():
+            print(
+                f"WARN: checklist {rel(Path(args.check_item_refs))} is not "
+                f"directly under the harness root {rel(root)}; skipping "
+                "markdown reference lint"
+            )
+            return 0
+        for warning in explicit_item_reference_warnings(data, root):
             print(f"WARN: {warning}")
         return 0
     if args.doctor_doing_plan:

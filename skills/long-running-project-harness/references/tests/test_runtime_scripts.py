@@ -2225,6 +2225,281 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertEqual(validated.returncode, 0, validated.stderr)
         self.assertNotIn("WARN", validated.stdout)
 
+    # ------------------------------------------------------------------
+    # Issue #10: explicit checklist item reference lint (warning-only)
+    # ------------------------------------------------------------------
+
+    def test_item_ref_known_references_silent(self) -> None:
+        # inline code span, bare token, and canonical task path forms all
+        # resolve against the checklist id set; known refs never warn.
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan(
+            "tasks/mvp-001/plan.md",
+            "# Plan\n\n"
+            "- Depends on `item:mvp-001` and item:mvp-001.\n"
+            "- Plan: tasks/mvp-001/plan.md and docs/project-harness/tasks/mvp-001/plan.md\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertNotIn("WARN", validated.stdout)
+
+    def test_item_ref_unknown_bare_warns_but_exits_zero(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan(
+            "tasks/mvp-001/plan.md",
+            "# Plan\n\nDepends on item:mvp-999.\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertIn("WARN:", validated.stdout)
+        self.assertIn("mvp-999", validated.stdout)
+        self.assertIn("tasks/mvp-001/plan.md", validated.stdout)
+
+    def test_item_ref_unknown_path_warns_once(self) -> None:
+        # bare and harness-prefixed task paths are the same reference kind;
+        # the same unknown candidate in the same file is deduped.
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan(
+            "tasks/mvp-001/plan.md",
+            "# Plan\n\n"
+            "- tasks/missing/plan.md\n"
+            "- docs/project-harness/tasks/missing/plan.md\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertEqual(validated.stdout.count("WARN:"), 1)
+        self.assertIn("missing", validated.stdout)
+
+    def test_item_ref_bare_prose_id_not_reported(self) -> None:
+        # V1 design cost: bare prose ids without the explicit item:/path
+        # syntax are never guessed.
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan(
+            "tasks/mvp-001/plan.md",
+            "# Plan\n\nDepends on mvp-999 and issue-123.\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertNotIn("WARN", validated.stdout)
+
+    def test_item_ref_space_id_inline_and_path_silent(self) -> None:
+        # ids may contain spaces when quoted with backticks or written as a
+        # tasks/<id>/plan.md segment.
+        self.write_checklist([base_item("ui polish")])
+        self.write_plan(
+            "tasks/ui polish/plan.md",
+            "# Plan\n\n- `item:ui polish`\n- tasks/ui polish/plan.md\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertNotIn("WARN", validated.stdout)
+
+    def test_item_ref_space_id_bare_form_warns_truncated(self) -> None:
+        # the bare token form cannot represent a space id; the truncated
+        # candidate is reported as unknown (V1 design cost).
+        self.write_checklist([base_item("ui polish")])
+        self.write_plan(
+            "tasks/ui polish/plan.md",
+            "# Plan\n\nDepends on item:ui polish.\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertIn("WARN:", validated.stdout)
+        self.assertIn("'ui'", validated.stdout)
+        self.assertNotIn("'ui polish'", validated.stdout)
+
+    def test_item_ref_star_emphasis_bare_ref_strips_marker(self) -> None:
+        # * / ** emphasis markers are stripped from bare candidates: the
+        # unknown id inside emphasis warns on the id alone, proving the
+        # marker never becomes part of the candidate; the known id inside
+        # bold emphasis stays silent.
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan(
+            "tasks/mvp-001/plan.md",
+            "# Plan\n\nDepends on *item:mvp-999* and **item:mvp-001**.\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertEqual(validated.stdout.count("WARN:"), 1)
+        self.assertIn("'mvp-999'", validated.stdout)
+        self.assertNotIn("mvp-999*", validated.stdout)
+
+    def test_item_ref_bare_trailing_underscore_id_recognized(self) -> None:
+        # '_' is never stripped from bare candidates, so a real id ending
+        # in '_' (mvp_001_) resolves via the bare form and the canonical
+        # task path without warnings.
+        self.write_checklist([base_item("mvp_001_")])
+        self.write_plan(
+            "tasks/mvp_001_/plan.md",
+            "# Plan\n\nDepends on item:mvp_001_ and tasks/mvp_001_/plan.md\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertNotIn("WARN", validated.stdout)
+
+    def test_item_ref_underscore_emphasis_not_covered(self) -> None:
+        # underscore emphasis is deliberately outside the V1 grammar: the
+        # leading '_' fails the bare token boundary, so _item:x_ is ignored
+        # entirely, and a bare trailing '_' stays part of the candidate.
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan(
+            "tasks/mvp-001/plan.md",
+            "# Plan\n\n"
+            "- _item:mvp-999_ and _item:mvp-001_ are not grammar\n"
+            "- item:mvp-999_ keeps the underscore\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertEqual(validated.stdout.count("WARN:"), 1)
+        self.assertIn("'mvp-999_'", validated.stdout)
+
+    def test_item_ref_hyphenated_tasks_dir_not_matched(self) -> None:
+        # my-tasks/<id>/plan.md is not a canonical task path; the path
+        # token boundary excludes '-'.
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan(
+            "tasks/mvp-001/plan.md",
+            "# Plan\n\nSee my-tasks/missing/plan.md\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertNotIn("WARN", validated.stdout)
+
+    def test_item_ref_fenced_blocks_skipped(self) -> None:
+        # fenced code examples are not project facts: unknown refs inside
+        # backtick and tilde fences never warn.
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan(
+            "tasks/mvp-001/plan.md",
+            "# Plan\n\n```\nitem:mvp-999\n```\n\n~~~\ntasks/mvp-999/plan.md\n~~~\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertNotIn("WARN", validated.stdout)
+
+    def test_item_ref_placeholders_ignored(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan(
+            "tasks/mvp-001/plan.md",
+            "# Plan\n\n- item:<id>\n- `item:<id>`\n- tasks/<id>/plan.md\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertNotIn("WARN", validated.stdout)
+
+    def test_item_ref_urls_commands_and_empty_not_reported(self) -> None:
+        # URLs without explicit item grammar, kebab-case prose, commands
+        # without item: tokens, and empty item: values never warn; command
+        # examples containing item: must be fenced or inline-coded.
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan(
+            "tasks/mvp-001/plan.md",
+            "# Plan\n\n"
+            "- See https://example.com/issues/10 and https://example.com/item:not-an-id\n"
+            "- Run: python3 -m unittest and `npm run item:lint`\n"
+            "- item: (empty) and missing-id\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertNotIn("WARN", validated.stdout)
+
+    def test_item_ref_url_with_explicit_path_grammar_warns(self) -> None:
+        # a URL that genuinely contains the explicit tasks/<id>/plan.md
+        # grammar is still linted; only URLs without explicit grammar are
+        # ignored (no URL scheme parser is involved).
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan(
+            "tasks/mvp-001/plan.md",
+            "# Plan\n\nSee https://example.com/tasks/missing/plan.md\n",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertEqual(validated.stdout.count("WARN:"), 1)
+        self.assertIn("missing", validated.stdout)
+
+    def test_item_ref_dedupe_and_stable_sort(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan(
+            "tasks/mvp-001/plan.md",
+            "# Plan\n\nitem:zzz and item:zzz and item:aaa\n",
+        )
+        self.write_plan("tasks/other.md", "# Plan\n\nitem:mmm\n")
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        lines = [line for line in validated.stdout.splitlines() if line.startswith("WARN:")]
+        # repeated item:zzz dedupes; order follows (relative_path, candidate, kind)
+        self.assertEqual(len(lines), 3)
+        self.assertIn("tasks/mvp-001/plan.md", lines[0])
+        self.assertIn("'aaa'", lines[0])
+        self.assertIn("'zzz'", lines[1])
+        self.assertIn("tasks/other.md", lines[2])
+        self.assertIn("'mmm'", lines[2])
+
+    def test_item_ref_code_span_and_bare_are_distinct_kinds(self) -> None:
+        # the same candidate written as `item:x` and item:x is one warning
+        # per reference kind, not one combined.
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan(
+            "tasks/mvp-001/plan.md", "# Plan\n\n`item:zzz` and item:zzz\n"
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertEqual(validated.stdout.count("WARN:"), 2)
+
+    def test_item_ref_symlinks_skipped_and_unreadable_warns_once(self) -> None:
+        # symlinked markdown is never followed; a non-UTF-8 file produces
+        # exactly one bounded warning and no candidate guessing.
+        self.write_checklist([base_item("mvp-001")])
+        outside = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(outside, ignore_errors=True))
+        target = outside / "refs.md"
+        target.write_text("# Outside\n\nitem:mvp-999\n", encoding="utf-8")
+        (self.harness / "tasks" / "link.md").symlink_to(target)
+        (self.harness / "tasks" / "linkdir").symlink_to(outside, target_is_directory=True)
+        (self.harness / "tasks" / "bad.md").write_bytes(
+            b"# Plan\n\nitem:mvp-999 \xff\xfe\n"
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertEqual(validated.stdout.count("WARN:"), 1)
+        self.assertIn("bad.md", validated.stdout)
+        self.assertNotIn("mvp-999", validated.stdout)
+
+    def test_item_ref_checklist_outside_harness_root_skips(self) -> None:
+        # a checklist that is not directly inside the canonical harness root
+        # yields exactly one warning and skips the markdown scan entirely.
+        self.write_checklist([base_item("mvp-001")])
+        self.write_plan("tasks/mvp-001/plan.md", "# Plan\n\nitem:mvp-999\n")
+        external = self.project / "external-checklist.json"
+        write_json(
+            external,
+            {
+                "project": "fixture-project",
+                "harness_root": "docs/project-harness",
+                "updated_at": "2026-05-12",
+                "items": [base_item("mvp-001")],
+            },
+        )
+        validated = self.run_harness("validate", str(external))
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertEqual(validated.stdout.count("WARN:"), 1)
+        self.assertIn("skipping", validated.stdout)
+        self.assertNotIn("mvp-999", validated.stdout)
+
+    def test_item_ref_scanner_unexpected_failure_not_swallowed(self) -> None:
+        # non-I/O scanner failures must propagate (nonzero exit), never be
+        # downgraded to warnings.
+        hc = self.load_harness_common()
+        self.write_checklist([base_item("mvp-001")])
+        with mock.patch.object(hc.os, "walk", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                hc.explicit_item_reference_warnings(
+                    json.loads(
+                        (self.harness / "mvp-checklist.json").read_text(encoding="utf-8")
+                    ),
+                    self.harness,
+                )
+
     def test_review_result_fails_closed_outside_review_phases(self) -> None:
         self.seed_item()
         start = self.run_harness("start", "mvp-001", "codex", "codex-1")

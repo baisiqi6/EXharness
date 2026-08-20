@@ -359,7 +359,9 @@ python3 "$CLAUDE_SKILL_DIR/scripts/validate-checklist.py" path/to/checklist.json
 - Coding agent：消费已分配或已激活的 item；由目标 agent 发起 `accept` 或 `decline`；在 scope 内实现、验证、写 handoff；默认不自行扩大范围，不直接 mark done。
 - Reviewer：审查 plan/result 是否满足 acceptance、是否越界、验证是否充分，并回到真实
   问题、产品目标和最小机制判断实现；由 reviewer 发起
-  `review-result approved|changes_requested|blocked`。上下文选择与审查方法见
+  `review-result <item-id> <reviewer> approved|changes_requested|blocked
+  --reviewed-packet-sha256 <64-hex>`（hash 对 reviewer 实际阅读的 packet 文件计算，
+  不得回抄 packet header）。上下文选择与审查方法见
   [reviewer-strategy.md](references/reviewer-strategy.md)。
 - Human：决定产品方向、范围扩大和高风险 authority；可以给出有界持久授权。
   Operator 只能在该授权覆盖的目标、范围和时限内执行，且不能省略安全 gate。
@@ -398,9 +400,32 @@ Packet 状态机：
 - `blocker-packet.md`: 表示 item 进入 `blocked`；生成时释放 owner/lease，记录 `workflow.unblock_owner`，必须通过 `unblock` 或明确 override 解阻。
 - `closeout-packet.md`: 只表示 ready for closeout review，不允许直接把 item 标为 `done`。
 
+**派生制品新鲜度契约**：`review-packet.md`、`closeout-packet.md` 与
+`current/task_plan.md` 在文件顶部、首个 fenced plan snapshot 之前写入固定
+`## Freshness Metadata` 小节（`generated_at`、`source_plan_sha256`、
+`canonical_plan_path`、`checklist_item`），作为相对 canonical plan 的 bounded
+evidence。canonical plan 文件仍是正文 authority，hash 只是 locator/evidence；
+plan 正文内出现形似 freshness header 的内容不会改变解析结果。
+
+- `review-result` 只能绑定 reviewer 实际阅读的 exact packet bytes：必须传
+  `--reviewed-packet-sha256 <64-hex>`（对 packet 文件自行计算，不得回抄 header；
+  协议只要求 exact bytes SHA-256，可用 `shasum -a 256`（macOS）/
+  `sha256sum`（Linux）/ PowerShell `Get-FileHash -Algorithm SHA256`（Windows）
+  计算，平台命令只是示例，不是 authority），且仅在 workflow phase 为
+  `review_requested`（绑 review packet）或 `closeout_requested`（绑 closeout
+  packet）时可用；其他 phase fail closed。
+  verdict 写入前会校验 packet 字节、`checklist_item`、canonical plan locator、
+  `source_plan_sha256` 与内嵌 snapshot，任何失败都不改 checklist。
+- legacy packet/pointer 仍可读，`harnessctl validate` 只 `WARN`；但新 verdict
+  必须先重新生成 packet 再审查。
+- `mark-done` 在 closeout 后重新验证 checklist 中保存的 `reviewed_packet_sha256`、
+  packet 当前 bytes 与当前 plan，approval 后 plan/packet 漂移会 fail closed；
+  `--force --reason` 保持为有审计事件的显式 break-glass，可越过 freshness 但必须
+  提供非空 reason。
+
 如果目标 agent 不能接手，应运行 `decline <item-id> <actor>`，而不是沉默丢弃 handoff。长任务超过 TTL 时，当前 owner/session 应运行 `renew-lease <item-id> <owner> <session-id>`，避免其他 agent 误判 lease 过期。
 
-只有 reviewer 通过 `review-result <item-id> <reviewer> approved` 写入 closeout 审查结论后，operator/human 才能运行 `mark-done`。`mark-done` 会释放 owner/lease 并清理 stale current pointer。`--force --reason` 只用于明确 human override，并会写入 event metadata。
+只有 reviewer 通过 `review-result <item-id> <reviewer> approved --reviewed-packet-sha256 <64-hex>` 写入 closeout 审查结论后，operator/human 才能运行 `mark-done`。`mark-done` 会释放 owner/lease 并清理 stale current pointer。`--force --reason` 只用于明确 human override，并会写入 event metadata。
 
 ## High-risk 生命周期阶段
 
@@ -450,7 +475,7 @@ active）。从旧名切换到新名运行 `harnessctl migrate-checklist`（同�
 
 每个 item 至少包含：`id`、`title`、`status`（todo/doing/done/blocked）、`priority`（p0/p1/p2）、`owner`、`selected_in_session`、`updated_at`、`dependencies`、`blocked_by`、`blocked_reason`、`acceptance`、`verification`、`handoff`。
 
-多 agent 兼容扩展字段（推荐）：`workflow`（assigned/running/closeout_requested/changes_requested/closed）、`lease`（acquired_at/expires_at/ttl_minutes）、`artifacts`（plan/handoff_packet/review_packet/closeout_packet/branch/pr）、`review`（decision 取 approved/changes_requested/blocked/null）。
+多 agent 兼容扩展字段（推荐）：`workflow`（assigned/running/closeout_requested/changes_requested/closed）、`lease`（acquired_at/expires_at/ttl_minutes）、`artifacts`（plan/handoff_packet/review_packet/closeout_packet/branch/pr）、`review`（decision 取 approved/changes_requested/blocked/null；freshness evidence 为 `reviewed_packet_sha256`、`source_plan_sha256`、`reviewed_packet_locator`，由 `review-result` 写入）。
 
 Branch 字段协议：`workflow.branch` 是工作分支，通常由 `git.branch_namespace` 生成；`artifacts.branch` 与其保持一致；`artifacts.pr` 是 PR 链接；远程 agent 不得改非自己 namespace 下的 branch，除非 human 明确授权。
 
@@ -506,7 +531,7 @@ split layout）；这是 operator 选择，只做 lexical/regular-file 校验，
 
 除非验证结果已经记录在 `progress.md`，否则不要把 item 标成 `done`。
 除非用户明确要求 override，否则不要启动 dependencies 未完成的 item。
-除非 reviewer 已 approved，coding agent 不应自行把 item 标为 `done`；使用 `closeout` + `review-result` + `mark-done`。
+除非 reviewer 已 approved，coding agent 不应自行把 item 标为 `done`；使用 `closeout` + `review-result --reviewed-packet-sha256 <64-hex>` + `mark-done`。
 如果 item 被其他 owner 的 active lease 占用，不要覆盖；选择其他 item，等待 operator，或使用带 reason 的 human override。
 
 模板见 [planning-files-template.md](references/planning-files-template.md)。

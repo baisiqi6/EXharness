@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import re
 
 from harness_common import (
     active_lease,
     append_event,
+    bound_packet_path,
     branch_for,
     claim_lease,
     clear_current_pointer,
@@ -15,11 +17,14 @@ from harness_common import (
     lease_is_expired,
     load_checklist,
     mutate_checklist,
+    packet_freshness_problems,
+    parse_freshness_metadata,
     rel,
     release_lease,
     require_force_reason,
     require_item,
     resolve_item_plan,
+    sha256_bytes,
     today,
     unfinished_dependencies,
     utc_now,
@@ -307,6 +312,31 @@ def do_review_result(args: argparse.Namespace) -> int:
     if args.decision not in APPROVAL_DECISIONS:
         fail(f"review decision must be one of: {', '.join(sorted(APPROVAL_DECISIONS))}")
 
+    # D3/D4: phase-bound packet + full freshness verification must complete
+    # before any checklist mutation; the verified evidence is reused by the
+    # mutation callback so verdict and evidence cannot drift apart.
+    checklist = load_checklist()
+    item = require_item(checklist, args.item)
+    workflow_status = (item.get("workflow") or {}).get("status")
+    if workflow_status not in ("review_requested", "closeout_requested"):
+        fail(
+            f"review-result requires workflow phase review_requested or "
+            f"closeout_requested, got {workflow_status!r}; regenerate the "
+            "review/closeout packet first"
+        )
+    problems = packet_freshness_problems(
+        item=item,
+        workflow_status=workflow_status,
+        reviewer_hash=args.reviewed_packet_sha256,
+    )
+    if problems:
+        fail("; ".join(problems))
+
+    packet_path = bound_packet_path(item, workflow_status)
+    packet_bytes = packet_path.read_bytes()
+    packet_hash = sha256_bytes(packet_bytes)
+    metadata, _duplicate_keys = parse_freshness_metadata(packet_bytes.decode("utf-8"))
+
     def callback(checklist: dict) -> None:
         item = require_item(checklist, args.item)
         review = ensure_review(item)
@@ -317,6 +347,9 @@ def do_review_result(args: argparse.Namespace) -> int:
         review["reviewer"] = args.reviewer
         review["phase"] = previous_workflow_status
         review["updated_at"] = today()
+        review["reviewed_packet_sha256"] = packet_hash
+        review["source_plan_sha256"] = metadata["source_plan_sha256"]
+        review["reviewed_packet_locator"] = rel(packet_path)
         if args.summary:
             review["summary"] = args.summary
         if args.artifact:
@@ -343,6 +376,10 @@ def do_review_result(args: argparse.Namespace) -> int:
         status=args.decision,
         artifacts=[args.artifact] if args.artifact else [],
         summary=args.summary or f"{args.reviewer} marked {args.item} {args.decision}",
+        metadata={
+            "reviewed_packet_sha256": packet_hash,
+            "source_plan_sha256": metadata["source_plan_sha256"],
+        },
     )
     return 0
 
@@ -353,6 +390,33 @@ def do_mark_done(args: argparse.Namespace) -> int:
     if item.get("status") == "done":
         print(f"Item already done: {args.item}")
         return 0
+
+    require_force_reason(args.force, args.reason)
+
+    if not args.force:
+        # D5: revalidate the reviewed packet and the current canonical plan
+        # before any mutation, so plan/packet drift after approval cannot be
+        # closed by an old verdict. --force --reason stays the auditable
+        # break-glass that skips this gate (and the approval gates below).
+        review = item.get("review") or {}
+        if review.get("decision") != "approved":
+            fail("mark-done requires review.decision == approved; use --force --reason only for explicit human override")
+        if review.get("phase") != "closeout_requested":
+            fail("mark-done requires approved review of a closeout request; use --force --reason only for explicit human override")
+        saved_hash = review.get("reviewed_packet_sha256")
+        if not (isinstance(saved_hash, str) and re.fullmatch(r"[0-9a-fA-F]{64}", saved_hash)):
+            fail(
+                "mark-done requires review.reviewed_packet_sha256 recorded at "
+                "approval; regenerate the closeout packet and re-review"
+            )
+        workflow_status = (item.get("workflow") or {}).get("status")
+        problems = packet_freshness_problems(
+            item=item,
+            workflow_status=workflow_status,
+            reviewer_hash=saved_hash,
+        )
+        if problems:
+            fail("; ".join(problems))
 
     def callback(checklist: dict) -> None:
         item = require_item(checklist, args.item)
@@ -465,6 +529,14 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument("--item", required=True)
     review.add_argument("--reviewer", required=True)
     review.add_argument("--decision", required=True)
+    review.add_argument(
+        "--reviewed-packet-sha256",
+        required=True,
+        help=(
+            "SHA-256 of the exact packet bytes the reviewer read (64 hex); "
+            "must not be copied from the packet header."
+        ),
+    )
     review.add_argument("--summary", default=None)
     review.add_argument("--artifact", default=None)
     review.set_defaults(func=do_review_result)

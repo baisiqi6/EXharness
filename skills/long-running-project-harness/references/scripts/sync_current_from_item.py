@@ -9,12 +9,15 @@ from __future__ import annotations
 import argparse
 
 from harness_common import (
+    current_task_pointer_path,
+    iso_z,
     load_checklist,
-    project_root,
     read_text,
     rel,
+    render_freshness_metadata,
     require_item,
     resolve_item_plan,
+    sha256_bytes,
 )
 
 
@@ -66,14 +69,24 @@ def build_current_pointer(
     in_scope: list[str],
     steps: list[str],
     exit_criteria: list[str],
+    source_plan_sha256: str,
 ) -> str:
     scope_lines = "\n".join(f"- {entry}" for entry in in_scope) if in_scope else "- (from canonical plan)"
     step_lines = "\n".join(f"- {entry}" for entry in steps) if steps else "- (from canonical plan)"
     exit_lines = "\n".join(f"- {entry}" for entry in exit_criteria) if exit_criteria else "- (from canonical plan)"
 
+    metadata = render_freshness_metadata(
+        {
+            "generated_at": iso_z(),
+            "source_plan_sha256": source_plan_sha256,
+            "canonical_plan_path": canonical_rel_path,
+            "checklist_item": item["id"],
+        }
+    )
+
     return f"""# Active Task Plan Pointer
 
-## Current Item
+{metadata}## Current Item
 
 - Checklist item: `{item["id"]}`
 - Title: `{item["title"]}`
@@ -129,8 +142,7 @@ def main() -> int:
     steps = extract_bullets(extract_section(text, "## Steps", "## Verification"), limit=4)
     exit_criteria = extract_bullets(extract_section(text, "## Exit Criteria", "## Handoff"), limit=4)
 
-    root = project_root() / "{{HARNESS_ROOT}}"
-    current_path = root / "current" / "task_plan.md"
+    current_path = current_task_pointer_path()
     current_path.parent.mkdir(parents=True, exist_ok=True)
     body = build_current_pointer(
         item=item,
@@ -139,6 +151,7 @@ def main() -> int:
         in_scope=in_scope,
         steps=steps,
         exit_criteria=exit_criteria,
+        source_plan_sha256=sha256_bytes(plan_path.read_bytes()),
     )
     current_path.write_text(body, encoding="utf-8")
 

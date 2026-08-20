@@ -11,12 +11,16 @@ import argparse
 from harness_common import (
     append_event,
     harness_root,
+    iso_z,
     load_checklist,
     mutate_checklist,
     read_text,
     rel,
+    render_freshness_metadata,
+    render_plan_snapshot,
     require_item,
     resolve_item_plan,
+    sha256_bytes,
     today,
     ensure_artifacts,
     ensure_review,
@@ -59,9 +63,20 @@ def main() -> int:
     progress_text = read_text(progress_path)
     recent_progress = tail_session_log(progress_text)
 
+    plan_bytes = plan_path.read_bytes()
+    plan_text = read_text(plan_path)
+    metadata = render_freshness_metadata(
+        {
+            "generated_at": iso_z(),
+            "source_plan_sha256": sha256_bytes(plan_bytes),
+            "canonical_plan_path": rel(plan_path),
+            "checklist_item": item["id"],
+        }
+    )
+
     body = f"""# Closeout Packet
 
-## Subject
+{metadata}## Subject
 
 - Checklist item: `{item["id"]}`
 - Reviewer: `{args.reviewer}`
@@ -100,9 +115,7 @@ def main() -> int:
 
 ## Canonical Plan Content
 
-```md
-{read_text(plan_path).rstrip()}
-```
+{render_plan_snapshot(plan_text)}
 
 ## Recent Progress Context
 

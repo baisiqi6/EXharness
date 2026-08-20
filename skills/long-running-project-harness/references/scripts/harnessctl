@@ -44,8 +44,9 @@ Workflow commands:
                                Move a blocked item back to todo with an auditable decision
   handoff <item-id> <target> [--actor operator] [--reason TEXT]
                                Generate current/handoff-packet.md and event
-  review-result <item-id> <reviewer> <approved|changes_requested|blocked> [--summary TEXT]
-                               Record reviewer decision
+  review-result <item-id> <reviewer> <approved|changes_requested|blocked>
+                 --reviewed-packet-sha256 <64-hex> [--summary TEXT]
+                               Record reviewer decision bound to the exact packet bytes read
   mark-done <item-id> [actor] [--verification TEXT] [--force --reason TEXT]
                                Mark done only after approved review, unless forced
 
@@ -227,6 +228,9 @@ EOF
         # canonical schema passed; now run the shared runtime locator check
         # (project-context rules stay in harness_common, not the schema validator)
         python3 "$SCRIPT_DIR/harness_common.py" --check-locators "$CHECKLIST_PATH"
+        # derived-artifact freshness is warning-only here; verdict/closeout
+        # gates fail closed separately (review-result / mark-done)
+        python3 "$SCRIPT_DIR/harness_common.py" --check-derived-freshness "$CHECKLIST_PATH"
         ;;
     doctor)
         echo "=== Harness Doctor ==="

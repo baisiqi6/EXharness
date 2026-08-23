@@ -182,6 +182,11 @@ harnessctl migrate-checklist   # legacy 名 -> 新名，同目录 rename，不�
 部署下裸 add/update fail closed；Standalone 允许 operator 明确选择的 external absolute plan locator
 （operator 选择，不是 containment 安全保证）。
 
+实例 runtime 的 `harnessctl validate` 还会 warning-only 检查当前恢复边界：`doing` item
+必须能解析到可读 canonical plan，active review/closeout phase 必须有可读的绑定 packet。
+关闭后的 `current/*` cache 与历史 events 不扫描；这些 warning 不改变 validate 的退出码，
+`review-result` / `mark-done` 的 hard gate 仍独立 fail closed。
+
 `references/scripts/` 是生成项目实例 runtime 的**模板**（含 `{{占位符}}`），不是安装器。
 
 ## 许可证

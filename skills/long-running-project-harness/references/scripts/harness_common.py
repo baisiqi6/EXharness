@@ -807,21 +807,44 @@ def packet_freshness_problems(
 def derived_freshness_warnings(checklist: dict[str, Any]) -> list[str]:
     """D6: warning-only derived-artifact checks for `harnessctl validate`.
 
-    Legacy artifacts and drift only warn and keep validate successful;
-    missing derived files are not upgraded to schema errors. Verdict and
-    closeout gates fail closed separately via packet_freshness_problems.
+    Current recovery gaps, legacy artifacts, and drift only warn and keep
+    this check successful. Verdict and closeout gates fail closed separately
+    via packet_freshness_problems. A workflow transition may briefly expose
+    an active phase before its packet is written; that transient state can
+    therefore warn once without becoming a schema error.
     """
     warnings: list[str] = []
 
     for item in checklist.get("items", []):
         if not isinstance(item, dict):
             continue
+
+        if item.get("status") == "doing":
+            locator_problems = checklist_runtime_problems({"items": [item]})
+            if locator_problems:
+                warnings.append(
+                    f"item {item.get('id')!r} cannot resolve its canonical plan: "
+                    + "; ".join(locator_problems)
+                )
+            else:
+                plan_path = resolve_item_plan(item, require_exists=False)
+                if not (plan_path.is_file() and os.access(plan_path, os.R_OK)):
+                    warnings.append(
+                        f"item {item.get('id')!r} has no readable canonical plan: "
+                        f"{plan_path}"
+                    )
+
         workflow_status = (item.get("workflow") or {}).get("status")
         if workflow_status not in ("review_requested", "closeout_requested", "review_approved"):
             continue
         packet_path = bound_packet_path(item, workflow_status)
         if packet_path is None or not packet_path.is_file():
-            continue  # missing derived file is not a freshness schema error
+            warnings.append(
+                f"item {item.get('id')!r} has no readable packet bound to "
+                f"workflow phase {workflow_status!r}; regenerate the "
+                "review/closeout packet"
+            )
+            continue
         warnings.extend(
             packet_freshness_problems(item=item, workflow_status=workflow_status)
         )

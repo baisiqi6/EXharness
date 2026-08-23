@@ -2225,6 +2225,89 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertEqual(validated.returncode, 0, validated.stderr)
         self.assertNotIn("WARN", validated.stdout)
 
+    def active_item(self, **overrides: object) -> dict:
+        fields: dict[str, object] = {
+            "owner": "codex",
+            "selected_in_session": "codex-1",
+            "workflow": {"status": "running", "updated_at": "2026-05-12"},
+        }
+        fields.update(overrides)
+        return base_item("mvp-001", "doing", **fields)
+
+    def test_validate_warns_when_doing_item_default_plan_is_missing(self) -> None:
+        self.write_checklist([self.active_item()])
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertIn("has no readable canonical plan", validated.stdout)
+        self.assertIn("tasks/mvp-001/plan.md", validated.stdout)
+
+    def test_validate_handles_external_absolute_plan_availability(self) -> None:
+        for exists in (True, False):
+            with self.subTest(exists=exists):
+                external = self.project / f"external-{exists}" / "plan.md"
+                if exists:
+                    external.parent.mkdir(parents=True)
+                    external.write_text("# External plan\n", encoding="utf-8")
+                self.write_checklist([self.active_item(plan_path=str(external))])
+                validated = self.run_harness("validate")
+                self.assertEqual(validated.returncode, 0, validated.stderr)
+                assertion = self.assertNotIn if exists else self.assertIn
+                assertion("has no readable canonical plan", validated.stdout)
+
+    def test_validate_warns_when_active_phase_packet_is_missing(self) -> None:
+        plan = self.write_plan("tasks/mvp-001/plan.md", "# Plan\n")
+        for phase, key in (
+            ("review_requested", "review_packet"),
+            ("closeout_requested", "closeout_packet"),
+            ("review_approved", "closeout_packet"),
+        ):
+            with self.subTest(phase=phase):
+                self.write_checklist([self.active_item(
+                    plan_path=str(plan),
+                    workflow={"status": phase, "updated_at": "2026-05-12"},
+                    artifacts={key: f"docs/project-harness/current/{key}.md"},
+                )])
+                validated = self.run_harness("validate")
+                self.assertEqual(validated.returncode, 0, validated.stderr)
+                self.assertIn("has no readable packet bound", validated.stdout)
+                self.assertIn(phase, validated.stdout)
+
+    def test_validate_ignores_closed_cache_and_historical_events(self) -> None:
+        self.write_checklist([base_item(
+            "mvp-001", "done",
+            workflow={"status": "closed", "updated_at": "2026-05-12"},
+            artifacts={"closeout_packet": "docs/project-harness/current/missing.md"},
+            verification="Verified.",
+        )])
+        (self.harness / "events.jsonl").write_text(
+            '{"event":"RESULT","item":"mvp-001",'
+            '"artifact":"docs/project-harness/current/missing.md"}\n',
+            encoding="utf-8",
+        )
+        validated = self.run_harness("validate")
+        self.assertEqual(validated.returncode, 0, validated.stderr)
+        self.assertNotIn("WARN", validated.stdout)
+
+    def test_freshness_subcheck_converts_conflicting_plan_locators_to_warning(self) -> None:
+        self.write_checklist([self.active_item(
+            plan_path="docs/project-harness/tasks/a/plan.md",
+            artifacts={"plan": "docs/project-harness/tasks/b/plan.md"},
+        )])
+        checked = subprocess.run(
+            [
+                sys.executable,
+                str(self.script_dir / "harness_common.py"),
+                "--check-derived-freshness",
+                str(self.harness / "mvp-checklist.json"),
+            ],
+            cwd=self.project,
+            text=True,
+            capture_output=True,
+        )
+
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        self.assertIn("conflicting plan locators", checked.stdout)
+
     # ------------------------------------------------------------------
     # Issue #10: explicit checklist item reference lint (warning-only)
     # ------------------------------------------------------------------

@@ -477,8 +477,9 @@ exact packet bytes 的一部分，且 Reviewer 仍须打开 canonical plan 阅�
   packet）时可用；其他 phase fail closed。
   verdict 写入前会校验 packet 字节、`checklist_item`、canonical plan locator、
   `source_plan_sha256` 与内嵌 snapshot，任何失败都不改 checklist。
-- legacy packet/pointer 仍可读，`harnessctl validate` 只 `WARN`；但新 verdict
-  必须先重新生成 packet 再审查。
+- `harnessctl validate` 对 legacy packet/pointer、`doing` item 缺少可读 canonical
+  plan，以及 active review/closeout phase 缺少绑定 packet 只输出 `WARN`；关闭后的
+  `current/*` cache 和历史 events 不进入该检查。新 verdict 必须先重新生成 packet 再审查。
 - `mark-done` 在 closeout 后重新验证 checklist 中保存的 `reviewed_packet_sha256`、
   packet 当前 bytes 与当前 plan，approval 后 plan/packet 漂移会 fail closed；
   `--force --reason` 保持为有审计事件的显式 break-glass，可越过 freshness 但必须

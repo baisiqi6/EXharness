@@ -14,7 +14,7 @@ import unicodedata
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -561,6 +561,13 @@ def item_has_plan_locator(item: dict[str, Any]) -> bool:
     return bool(item_plan_locator_fields(item))
 
 
+def _plan_locator_path(raw: str) -> Path:
+    # Persisted relative locators may originate on either host OS. Keep
+    # anchored paths host-native; do not reinterpret a foreign drive or UNC.
+    portable = raw if PureWindowsPath(raw).anchor else raw.replace("\\", "/")
+    return Path(portable)
+
+
 def checklist_runtime_problems(checklist: dict[str, Any]) -> list[str]:
     """Shared runtime authority check for every checklist item.
 
@@ -583,7 +590,7 @@ def checklist_runtime_problems(checklist: dict[str, Any]) -> list[str]:
         fields = item_plan_locator_fields(item)
         norms: set[str] = set()
         for key, raw in fields:
-            path = Path(raw)
+            path = _plan_locator_path(raw)
             if ".." in path.parts:
                 problems.append(
                     f"item {item.get('id')!r} {key} locator contains '..': {raw!r}"
@@ -600,7 +607,7 @@ def checklist_runtime_problems(checklist: dict[str, Any]) -> list[str]:
 
 
 def _interpret_plan_locator(key: str, raw: str) -> Path:
-    path = Path(raw)
+    path = _plan_locator_path(raw)
     if ".." in path.parts:
         fail(f"{key} locator must not contain '..': {raw!r}")
     if path.is_absolute():
@@ -616,7 +623,8 @@ def resolve_item_plan(item: dict[str, Any], *, require_exists: bool) -> Path:
     if both locators exist and normalize differently the call fails closed;
     with neither, the default <harness_root>/tasks/<id>/plan.md is used
     (guarded by the shared safe item id rule before any mkdir/write).
-    Relative locators resolve against project root; absolute locators are
+    Relative locators accept either slash and resolve against project root;
+    anchored locators retain their native spelling. Absolute locators are
     allowed for operator-chosen external task artifact roots in Standalone
     (lexical/regular-file checks only, not containment security).
     """

@@ -34,3 +34,5 @@ jobs:
           python -m unittest
           test_runtime_scripts.HarnessRuntimeTests.test_repo_relative_locator_is_portable_on_windows
           test_runtime_scripts.HarnessRuntimeTests.test_write_text_preserves_utf8_artifact_bytes
+          test_runtime_scripts.HarnessRuntimeTests.test_legacy_relative_windows_plan_locators_remain_readable
+          test_runtime_scripts.HarnessRuntimeTests.test_relative_windows_plan_parent_traversal_is_rejected

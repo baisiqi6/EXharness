@@ -956,6 +956,32 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("conflicting plan locators", result.stderr)
 
+    def test_legacy_relative_windows_plan_locators_remain_readable(self) -> None:
+        hc = self.load_harness_common()
+        plan = self.write_plan("tasks/mvp-001/plan.md", "# Existing Windows plan\n")
+        for locator in (
+            r"docs\project-harness\tasks\mvp-001\plan.md",
+            r"docs\\project-harness\\tasks\\mvp-001\\plan.md",
+        ):
+            with self.subTest(locator=locator):
+                item = base_item(
+                    "mvp-001", plan_path=locator,
+                    artifacts={"plan": "docs/project-harness/tasks/mvp-001/plan.md"},
+                )
+                self.write_checklist([item])
+                before = (self.harness / "mvp-checklist.json").read_bytes()
+                self.assertEqual(hc.checklist_runtime_problems(self.read_checklist()), [])
+                self.assertEqual(hc.resolve_item_plan(item, require_exists=True), plan.resolve())
+                self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+
+    def test_relative_windows_plan_parent_traversal_is_rejected(self) -> None:
+        hc = self.load_harness_common()
+        item = base_item("mvp-001", plan_path=r"docs\project-harness\..\escape\plan.md")
+        problems = hc.checklist_runtime_problems({"items": [item]})
+        self.assertTrue(any("contains '..'" in problem for problem in problems))
+        with mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+            hc.resolve_item_plan(item, require_exists=False)
+
     def test_plan_locator_both_equal_is_accepted(self) -> None:
         self.write_checklist(
             [

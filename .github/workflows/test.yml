@@ -20,3 +20,17 @@ jobs:
         run: python -m unittest discover -s skills/long-running-project-harness/references/tests -p 'test_*.py'
       - name: Check shell entrypoint
         run: bash -n skills/long-running-project-harness/references/scripts/harnessctl
+
+  windows-artifact-bytes:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Verify native Windows artifact bytes and locators
+        working-directory: skills/long-running-project-harness/references/tests
+        run: >-
+          python -m unittest
+          test_runtime_scripts.HarnessRuntimeTests.test_repo_relative_locator_is_portable_on_windows
+          test_runtime_scripts.HarnessRuntimeTests.test_write_text_preserves_utf8_artifact_bytes

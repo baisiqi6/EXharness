@@ -12,7 +12,7 @@ import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from unittest import mock
 
 
@@ -163,6 +163,21 @@ class HarnessRuntimeTests(unittest.TestCase):
             return module
         finally:
             sys.path.remove(str(self.script_dir))
+
+    def test_repo_relative_locator_is_portable_on_windows(self) -> None:
+        hc = self.load_harness_common()
+        root = PureWindowsPath("C:/work/project")
+        plan = root / "docs/project-harness/tasks/portable/plan.md"
+        with mock.patch.object(hc, "project_root", return_value=root):
+            self.assertEqual(hc.rel(plan), "docs/project-harness/tasks/portable/plan.md")
+
+    def test_write_text_preserves_utf8_artifact_bytes(self) -> None:
+        hc = self.load_harness_common()
+        packet = self.harness / "current" / "portable-packet.md"
+        for body in ("# 审查\n\nCanonical artifact.\n", "LF\nExplicit CRLF\r\nEnd\n"):
+            with self.subTest(body=body):
+                hc.write_text(packet, body)
+                self.assertEqual(packet.read_bytes(), body.encode("utf-8"))
 
     def read_events(self) -> list[dict]:
         path = self.harness / "events.jsonl"

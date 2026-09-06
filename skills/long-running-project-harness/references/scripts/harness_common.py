@@ -70,7 +70,7 @@ def harness_root() -> Path:
 
 def rel(path: Path) -> str:
     try:
-        return str(path.relative_to(project_root()))
+        return path.relative_to(project_root()).as_posix()
     except ValueError:
         return str(path)
 
@@ -104,7 +104,7 @@ def read_text(path: Path) -> str:
 
 def write_text(path: Path, body: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(body, encoding="utf-8")
+    path.write_text(body, encoding="utf-8", newline="\n")
 
 
 def read_json(path: Path, default: Any | None = None) -> Any:

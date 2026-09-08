@@ -111,6 +111,11 @@ checklist item `issue-123` 和 `tasks/issue-123/plan.md`。开工前先确认 Is
 active implementation PR，再通过 assignee 或项目约定的 label 认领；随后在独立 branch/worktree 中
 执行，最后由 PR 承担 diff、CI、review、冲突解决和 merge。
 
+外部社区贡献候选（包括 dogfood 修复）须在 shortlist、实现前、发布前三次检查实质重复工作，
+不能只搜索精确 Issue 编号。使用
+[语义碰撞检查与证据模板](skills/long-running-project-harness/references/candidate-collision-check.md)
+记录搜索覆盖、相关 PR 与源码判断；这是 Operator 准入协议，runtime 不自动判断语义重复。
+
 ```bash
 scripts/harness/harnessctl add-item issue-123 \
   --title "修复导入失败" \

@@ -69,6 +69,8 @@ symlink 绕过。
 - Architecture boundaries checked:
 - Domain-model decisions checked:
 - Potential overlap with other items:
+- Community candidate collision evidence（仅外部社区候选适用；链接任务证据）:
+- Collision decision / checked stage / UTC time（适用时填写，不作为 checklist status）:
 
 ## Steps
 

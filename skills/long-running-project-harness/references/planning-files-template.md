@@ -234,6 +234,9 @@ scripts/harness/harnessctl update-item mvp-004 \
 如果项目使用 GitHub Issues/PRs，不要再维护一套 item ID registry。单仓库中直接使用
 `issue-<number>`：Issue `#123` 对应 `issue-123` 与 `tasks/issue-123/plan.md`。
 
+外部社区候选先完成[语义碰撞检查](candidate-collision-check.md)，将证据链接放入 task plan。
+在 shortlist、实现工作树创建前、push/PR 前刷新；仅无精确 Issue 引用不代表无重复工作。
+
 ```bash
 # 先在 GitHub 确认 #123 open、无人认领、没有 active implementation PR，并完成认领
 scripts/harness/harnessctl add-item issue-123 \

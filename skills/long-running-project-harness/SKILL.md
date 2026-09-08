@@ -585,7 +585,13 @@ GitHub Issues/PRs 的单仓库项目，直接复用以下边界：
 
 最小流程：
 
-1. 选择 open、无人认领且没有 active implementation PR 的 Issue；通过 assignee/label 认领。
+选择外部社区的独立贡献候选（包括 dogfood 修复）时，先读取
+[语义碰撞检查与证据模板](references/candidate-collision-check.md)。准入依据是当前没有发现
+实质重复工作，不能仅用“无精确 Issue 引用 PR”或无人分配来证明。shortlist、实现工作树创建前、
+push/PR 前均须检查；记录实际查询覆盖与相关源码判断，未完成则不判定可开工。已有同域 PR 时
+先判断协作或剩余价值；这些候选结论不扩展 checklist schema，也不是 runtime 自动判定。
+
+1. 选择 open、无人认领且没有覆盖拟交付范围的 active implementation PR 的 Issue；通过 assignee/label 认领。
 2. Standalone 使用 `harnessctl add-item issue-123 ...` 登记重要或跨 session 节点；Coordinate-managed
    仍走 Coordinate combined-create/mirror 入口，禁止裸 add/update；普通小任务仍不强制登记。
 3. 创建包含 `issue-123` 的独立 branch/worktree，激活 item，维护唯一 canonical plan。

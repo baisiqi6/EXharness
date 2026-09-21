@@ -2,6 +2,9 @@
 
 这个模板用于某个正在执行的 checklist item。它不是项目总计划，而是任务级计划正文。
 
+开工前按 [GitHub 协作 profile](../subskills/github-collaboration/SKILL.md) 判断适用性并完成
+对应检查。实例化下面的正文时只保存实际规范/证据 locator，不复制包内相对链接或一份完整规则。
+
 > **Checklist 文件名权威规则（U1）**：新项目使用 `harness-checklist.json`，旧名
 > `mvp-checklist.json` 仍完整兼容；none/both 时 runtime fail closed，不要手动二选一。
 > 需要从旧名切换到新名时运行 `harnessctl migrate-checklist`。节点的新增与字段更新用
@@ -62,6 +65,15 @@ symlink 绕过。
 
 - 当前 item 的 acceptance:
 - 本轮计划如何满足它:
+
+## Collaboration Context
+
+- Risk mode / deployment profile / collaboration profile:
+- Governing collaboration profile locator（适用时）:
+- Issue / remote overlap and claim evidence（适用时；含核验时间）:
+- Responsible Operator / peer coordination or delegated Worker scope:
+- Writer branch/worktree / base:
+- Platform-specific acceptance（适用时）:
 
 ## Boundary Review
 

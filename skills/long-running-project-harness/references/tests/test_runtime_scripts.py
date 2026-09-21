@@ -3597,8 +3597,11 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertIn("--mode ordinary|high-risk", result.stdout)
 
     def test_mode_docs_consistent_with_cli(self) -> None:
-        skill_text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("--mode ordinary|high-risk", skill_text)
+        # CLI details live in the on-demand contract, not the parent router.
+        contract_text = (REFERENCES_DIR / "checklist-contract.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--mode ordinary|high-risk", contract_text)
         for template in (
             REFERENCES_DIR / "task-plan-template.md",
             REFERENCES_DIR / "planning-files-template.md",

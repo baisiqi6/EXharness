@@ -231,28 +231,14 @@ scripts/harness/harnessctl update-item mvp-004 \
 
 ### GitHub-backed 团队协作
 
-如果项目使用 GitHub Issues/PRs，不要再维护一套 item ID registry。单仓库中直接使用
-`issue-<number>`：Issue `#123` 对应 `issue-123` 与 `tasks/issue-123/plan.md`。
+采用此 profile 的项目，初始化时在项目 runbook 的开工入口链接
+[GitHub 协作子 skill](../subskills/github-collaboration/SKILL.md)，并使用该模块的唯一前置检查。
+实例化模板时改为目标环境可解析的 skill 路径或项目规范 locator；不要将包内相对链接照搬到项目。
+已有 Issue/PR 的复用、共享账号认领、平级 Operator 和 managed authority 都由该模块定义。
+不因普通单 session 工作而强制创建 Issue/item。
 
-```bash
-# 先在 GitHub 确认 #123 open、无人认领、没有 active implementation PR，并完成认领
-scripts/harness/harnessctl add-item issue-123 \
-  --title "Issue #123 的交付标题" \
-  --acceptance "验收条件通过，PR 关联并关闭 #123"
-
-# 每个 writer 使用独立 branch/worktree；branch 与 workflow/artifacts 中的记录保持一致
-git worktree add ../worktrees/issue-123 -b agent/codex/issue-123
-```
-
-权威边界：Issue 保存需求、repo-scoped identity 与 cooperative claim；branch checklist 是 merge
-candidate，`main` checklist 是 accepted canonical snapshot；task plan 保存执行细节；PR 保存 diff、
-review、CI 与 merge 结论。assignee/label 不是 hard lock，认领后仍应重读远端 Issue/PR 状态。
-branch 可遵循项目已有 namespace，但自定义后必须让 `workflow.branch` 与 `artifacts.branch` 保持同值。
-
-团队当前工作的全局视图来自实时 Issue/PR；未合并分支的状态不提前复制进 `main` checklist。合并时，
-不同 Issue 节点都应保留，并对 merge candidate 运行 checklist validator；同一 `issue-123` 若重复或
-语义不同则停止，由 reviewer 对照 Issue 处理，不得静默覆盖或改号。普通单 session 任务不强制创建 Issue/item；没有 GitHub 的 Standalone 项目继续
-使用 operator 选择的 safe ID；Coordinate-managed 节点仍走 Coordinate authority。
+通过适用的前置检查后，需要 checklist 的 Standalone 项目可登记 `issue-123`；
+Coordinate-managed 仍用其 lifecycle 入口。保留项目已有 branch namespace 和唯一 canonical plan。
 
 ## progress.md
 
@@ -338,7 +324,9 @@ Harness root:
 
 ## Session Init
 
-新 session 固定先跑的命令，例如：
+初始化本段时明确风险模式、deployment profile、协作规范 locator 与 writer worktree。
+先执行适用的协作前置检查；以下仅为 Standalone runtime 示例，普通协议任务不强制，
+Coordinate-managed 使用其 bootstrap/lifecycle 入口：
 
 ```bash
 scripts/harness/harnessctl state

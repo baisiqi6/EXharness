@@ -7,6 +7,23 @@
 Harness root：`{{HARNESS_ROOT}}`
 脚本目录：`{{SCRIPTS_DIR}}`
 
+本模板面向已启用 runtime harness 的 session。实例化时把下方 skill 相对链接替换为目标
+环境可解析的已安装 skill 路径或项目约定的规范 locator；不要把失效相对链接照抄进项目。
+
+## Step 0：选择执行入口
+
+先读取 [父 skill](../../SKILL.md) 的三个维度路由。普通单 Operator、单 session、无协作或
+恢复需求的任务使用父入口轻量闭环，不因本模板强制创建 Issue/checklist 或跑 session-init。
+
+在任何实现、派发 Worker 或 runtime start 前，按
+[GitHub 协作 profile](../../subskills/github-collaboration/SKILL.md) 判断适用性并完成前置检查。
+已分配 Worker 核验派发 Operator 的共享认领证据，不重复建项；平级维护者不按 Worker 处理。
+确认当前 writer 的独立 branch/worktree 后再执行下面会写文件的步骤。
+
+Coordinate-managed 项目先读取 assignment/worker-bootstrap 与对应 operator 指南，后续所有
+写操作遵循 Coordinate lifecycle；下方 Standalone 命令不是绕过 DB/lease/receipt 的替代路径。
+缺失 managed bootstrap/操作依据时先报告，不默认退回裸 harnessctl。
+
 ---
 
 ## 读层：重建认知上下文
@@ -35,7 +52,7 @@ pwd
 - 输出当前状态摘要
 - 做只读 worktree 发现：若 current item 的 `workflow.branch` 已在另一个 worktree 展开，输出 `Active item worktree: <path>` 并建议切换；Git 不可用时静默跳过
 
-**门控**：如果 session-init 报告失败，先修 bug，再实现新功能。
+**门控**：如果 session-init 报告失败，先诊断并处理授权范围内的回归，再实现新功能；无关失败留证上报。
 不要在已知回归上继续堆新代码。如果测试已知不稳定，用 `--skip-tests`，
 但要把风险写回 `progress.md`。
 
@@ -99,6 +116,10 @@ cat {{HARNESS_ROOT}}/tasks/<item-id>/plan.md
 ## 写层：增量工作 + 持久化
 
 ### Step 7：选择 checklist item
+
+再次确认 Step 0 中适用的协作检查已完成，或现有认领经远端核验仍有效；没有有效证据时
+先回到同一个 GitHub profile，不根据本地 todo 直接认定无人负责。以下命令仅适用于
+Standalone runtime；Coordinate-managed 使用当前 bootstrap 指定的对应入口。
 
 - 如果已有分配给自己的 `assigned` / `handoff_requested` item，先运行 `{{SCRIPTS_DIR}}/harnessctl accept <item-id> <owner> <session-id>`。
 - 如果已有自己持有的 `doing` item，继续它；长任务接近 lease 过期时运行 `{{SCRIPTS_DIR}}/harnessctl renew-lease <item-id> <owner> <session-id>`。

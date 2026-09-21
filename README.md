@@ -104,30 +104,29 @@ docs/project-harness/
 
 之后每次开新 session，agent 会先读这些文件恢复上下文，而不是从零开始。
 
-## GitHub 团队协作
+## GitHub 团队协作与按需读取
 
-对 GitHub-backed 项目，建议把 Issue number 直接作为 repo-scoped 稳定身份：Issue `#123` 对应
-checklist item `issue-123` 和 `tasks/issue-123/plan.md`。开工前先确认 Issue 仍 open、无人认领且没有
-active implementation PR，再通过 assignee 或项目约定的 label 认领；随后在独立 branch/worktree 中
-执行，最后由 PR 承担 diff、CI、review、冲突解决和 merge。
+[主 skill](skills/long-running-project-harness/SKILL.md) 先判断风险模式、运行方式和协作方式，
+再加载当前动作需要的模块。采用 GitHub 协作的项目，在实现前执行
+[GitHub 协作 profile](skills/long-running-project-harness/subskills/github-collaboration/SKILL.md)
+的语义查重、工作归属和认领核验；共享账号下要能区分平级 Operator。session prompt 与任务模板
+都回到该唯一规范，避免仅有本地 checklist 而没有跨 clone 可见的工作状态。
 
-```bash
-scripts/harness/harnessctl add-item issue-123 \
-  --title "修复导入失败" \
-  --acceptance "回归测试通过，PR 关联并关闭 #123"
-```
+ordinary/high-risk、Standalone/Coordinate-managed、是否采用 GitHub 协作分别判断。普通单
+Operator、单 session、无协作或恢复需求的小任务保留轻量路径；GitHub 认领不取代 runtime
+assignment/lease/receipt。一端平台验收不替代另一端。
 
-这里没有第二套锁或任务系统：
+按需入口：
 
-- GitHub Issue 是需求、全局可见身份和 cooperative claim；assignee 不是数据库级 hard lock。
-- branch 内的 checklist 是本次实现的 merge candidate；`main` 上的 checklist 是已接受的 canonical snapshot。
-- 团队当前正在做什么，以实时 Issue/PR 为全局视图；未合并分支的 item 不会提前写进 `main` checklist。
-- EXharness item 保存执行状态，`tasks/<item-id>/plan.md` 保存实现计划；Issue 不复制这些细节。
-- 两个不同 Issue 的节点在 PR 中正常合并；merge candidate 必须运行 checklist validator。同一 `issue-123` 出现重复或不同语义时停止合并，由 reviewer 对照 Issue 决定，不能静默改号或覆盖。
+- [执行与角色](skills/long-running-project-harness/references/workflow.md)
+- [存储与恢复](skills/long-running-project-harness/references/storage-and-recovery.md)
+- [可选运行层设置](skills/long-running-project-harness/references/runtime-setup.md)
+- [Checklist 契约](skills/long-running-project-harness/references/checklist-contract.md)
+- [事件与 packet 新鲜度](skills/long-running-project-harness/references/events-and-packets.md)
+- [范围复核](skills/long-running-project-harness/references/scope-review.md)
 
-普通、单 session、无需跨人协作或恢复的小任务仍可直接完成，不强制先建 Issue 或 checklist item。
-没有 GitHub 的 Standalone 项目继续使用 operator 选择的安全 ID；Coordinate-managed 项目仍由
-Coordinate 的 authority 管理节点。
+外部社区选题还使用 [候选碰撞检查](skills/long-running-project-harness/references/candidate-collision-check.md)。
+这些是 Operator 协议；runtime 不自动判断语义重复，不增加 Issue registry 或分布式锁。
 
 ## 和 Coordinate / MultiNexus 的关系
 

@@ -174,3 +174,19 @@ high-risk 或显式启用 runtime workflow 时，checklist item 从 `todo` 进�
 ## 结束汇报
 
 每个 session 结束时简短汇报：改了什么、验证了什么、哪些 checklist item 状态变化了、是否有风险/阻塞/推荐的下一个 slice。详细信息写在项目文件里。
+
+### Coordinate closeout input compatibility
+
+`harnessctl workflow-contract` is a read-only capability query. Version 1
+advertises `reviewed_packet_sha256=true` and `self_test_evidence=true`.
+`harnessctl closeout <item-id> [reviewer] --self-test-evidence TEXT` preserves the
+supplied text in the new packet's **Self-test Evidence** section without changing
+historical checklist verification. Unknown closeout options fail before packet
+or checklist writes rather than being silently ignored.
+
+Coordinate adapters must check this capability before closeout/review-result and
+pass the reviewer's exact `--reviewed-packet-sha256` unchanged. Updating only the
+installed skill does not update a project's instantiated scripts: review and
+deploy the matching project runtime files, regenerate the packet, then review
+its actual bytes. Existing phase, plan/packet freshness and completion gates
+remain required; capability support is not an approval or completion receipt.

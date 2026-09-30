@@ -364,6 +364,40 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertIn("TEST_OK", result.stdout)
         self.assertNotIn("pnpm", result.stdout)
 
+    def test_workflow_contract_is_readonly_without_checklist(self) -> None:
+        before = sorted(p.relative_to(self.project).as_posix() for p in self.project.rglob("*"))
+        result = self.run_harness("workflow-contract")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {
+            "version": 1, "reviewed_packet_sha256": True, "self_test_evidence": True,
+        })
+        self.assertEqual(before, sorted(p.relative_to(self.project).as_posix() for p in self.project.rglob("*")))
+
+    def test_closeout_preserves_explicit_self_test_evidence_in_packet(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        started = self.run_harness("start", "mvp-001", "worker", "session")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        evidence = "pytest: 3 passed\n构建通过; latest run #42"
+        requested = self.run_harness("closeout", "mvp-001", "reviewer", "--self-test-evidence", evidence)
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        packet = (self.harness / "current/closeout-packet.md").read_text()
+        self.assertIn("## Self-test Evidence\n\n" + evidence, packet)
+        self.assertEqual(self.read_checklist()["items"][0]["verification"], "Run configured tests.")
+
+    def test_closeout_evidence_option_without_reviewer_and_unknown_option_rejected(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        self.run_harness("start", "mvp-001", "worker", "session")
+        requested = self.run_harness("closeout", "mvp-001", "--self-test-evidence", "fresh results")
+        self.assertEqual(requested.returncode, 0, requested.stderr)
+        packet_path = self.harness / "current/closeout-packet.md"
+        before_packet = packet_path.read_bytes()
+        before_checklist = (self.harness / "mvp-checklist.json").read_bytes()
+        self.assertIn(b"Reviewer: `TBD`", before_packet)
+        denied = self.run_harness("closeout", "mvp-001", "reviewer", "--unknown-evidence", "lost")
+        self.assertNotEqual(denied.returncode, 0)
+        self.assertEqual(packet_path.read_bytes(), before_packet)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before_checklist)
+
     def test_closeout_requires_approved_review_before_mark_done(self) -> None:
         self.write_checklist([base_item("mvp-001")])
         start = self.run_harness("start", "mvp-001", "codex", "codex-1")

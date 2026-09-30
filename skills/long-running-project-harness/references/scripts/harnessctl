@@ -64,7 +64,8 @@ Packet and state commands:
   review <item-id> [reviewer]  Generate current/review-packet.md and request review
   blocker <item-id> [--actor ACTOR] [--reason TEXT]
                                Generate current/blocker-packet.md and mark blocked
-  closeout <item-id> [reviewer]
+  workflow-contract           Print the supported review/closeout input contract (read-only)
+  closeout <item-id> [reviewer] [--self-test-evidence TEXT]
                                Generate current/closeout-packet.md; does not mark done
   validate [checklist-path]    Validate the resolved checklist (harness-checklist.json
                                or mvp-checklist.json); explicit path validates that file
@@ -78,6 +79,9 @@ USAGE
 cmd="${1:-}"
 
 case "${cmd}" in
+    workflow-contract)
+        printf '%s\n' '{"version":1,"reviewed_packet_sha256":true,"self_test_evidence":true}'
+        ;;
     add-item)
         item="${2:-}"
         [[ -n "${item}" ]] || { usage; exit 1; }
@@ -215,9 +219,14 @@ EOF
         ;;
     closeout)
         item="${2:-}"
-        reviewer="${3:-TBD}"
         [[ -n "${item}" ]] || { usage; exit 1; }
-        python3 "$SCRIPT_DIR/prepare_closeout_packet.py" --item "${item}" --reviewer "${reviewer}"
+        shift 2
+        reviewer="TBD"
+        if [[ $# -gt 0 && "$1" != --* ]]; then
+            reviewer="$1"
+            shift
+        fi
+        python3 "$SCRIPT_DIR/prepare_closeout_packet.py" --item "${item}" --reviewer "${reviewer}" "$@"
         ;;
     validate)
         shift || true

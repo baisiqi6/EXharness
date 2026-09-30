@@ -48,6 +48,7 @@ def main() -> int:
     parser.add_argument("--item", required=True, help="Checklist item id, e.g. mvp-003")
     parser.add_argument("--reviewer", default="TBD", help="Reviewer label")
     parser.add_argument("--date", default=None, help="Machine timestamp override (default: current UTC ISO-8601)")
+    parser.add_argument("--self-test-evidence", default="", help="Self-test evidence supplied for this closeout packet")
     args = parser.parse_args()
 
     root = harness_root()
@@ -101,6 +102,10 @@ def main() -> int:
 ## Verification
 
 {item["verification"]}
+
+## Self-test Evidence
+
+{args.self_test_evidence or "Not supplied for this closeout request."}
 
 ## Handoff
 

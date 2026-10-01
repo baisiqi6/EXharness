@@ -44,6 +44,12 @@ active plan 位置。产品 repo 与外部 artifact repo 不得同时维护同�
 
 如果两套系统同时存在，不要把同一个事实重复维护两遍。当前任务完成后，把稳定结果摘要写回 harness 的 `progress.md`，并更新当前 checklist；详细执行轨迹留在 task plan。机器可读状态由脚本从长期文件派生，不要手写维护第三份事实。
 
+Coordinate-managed 的 fallback/export 是过程证据与恢复材料，应引用原 task/assignment
+的权威 locator，并在现有 handoff 中保存 [恢复交接](workflow.md#managed-completion-and-fallback-recovery)。
+文件中的 fallback 状态不承担 managed completion authority。completion receipt、targeted
+reconcile 与 audit 的证据按既定 task-scoped 布局保留，各自记录覆盖范围；恢复时读取
+Coordinate 权威状态核验，不维护第二份运行账本。
+
 推荐 source of truth 划分：
 
 - `harness-checklist.json`（新默认；legacy 名 `mvp-checklist.json` 兼容）: coarse status、priority、owner、lease、workflow、acceptance、verification、artifact path、review decision。

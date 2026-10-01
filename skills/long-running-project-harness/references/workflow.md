@@ -175,6 +175,39 @@ high-risk 或显式启用 runtime workflow 时，checklist item 从 `todo` 进�
 
 每个 session 结束时简短汇报：改了什么、验证了什么、哪些 checklist item 状态变化了、是否有风险/阻塞/推荐的下一个 slice。详细信息写在项目文件里。
 
+### Managed completion and fallback recovery
+
+以下收口链适用于 Coordinate-managed；Standalone runtime 按自身 lifecycle 收口，未启用
+runtime 的 ordinary 任务继续使用轻量闭环。
+
+1. **Completion**：由持有相应 authority 的 Operator 经 Coordinate lifecycle 完成当前
+   task/assignment 的收口，保留现有 assignment/lease、reviewer、plan/packet freshness
+   和 receipt gate，保存权威 completion receipt。
+2. **Targeted reconcile**：根据该 receipt 与 Coordinate 权威状态，核对并按需对齐当前
+   task 的必要项目投影；范围限定为该 task/assignment，不为收口扩大到全量 reconcile。
+3. **Audit**：通过对应的只读入口，核对当前 task 的 receipt、assignment、owner/lease
+   状态与必要项目投影，保存 audit 结果、覆盖范围和未验证项。单个命令成功不能推导所有
+   镜像或 lease 已一致。
+
+三个阶段分别留下证据 locator，按实际完成情况汇报；reviewer approval、GitHub 状态和
+文件中的 done 状态不替代 managed completion，completion receipt 也不替代 reconcile
+或 audit 的证据。具体入口与操作依据读取当前 bootstrap 和 `coordinate-operator` 对应模块。
+
+provider 执行、审查或任一收口阶段失败或不可用时，在现有 plan/handoff 中记录已完成阶段、
+真实失败证据及允许的 fallback 工作范围。fallback 保留原 deployment profile 与 managed authority；已有授权
+覆盖的独立工作可以继续，未完成的 managed 收口仍作为恢复工作保留，不退回裸 harnessctl。
+恢复交接必须明确：
+
+- 负责恢复的具名 Operator，以及其待确认的 authority 缺口（如有）。
+- 真实恢复条件：当前缺失的能力、授权或依赖及其确认依据，不能只写“以后再试”。
+- 关联原 task/assignment 的有界恢复验收条目：需补齐的阶段、处理范围、所需证据和退出标准。
+
+验收条目可以写在现有 plan/handoff 中，不强制新增 checklist、runtime 或持久角色。
+恢复时先刷新原任务的权威状态与已有 receipt，确认条件满足后从真正缺失的阶段接续，
+保留全部原 gate。若执行、审查或 completion 尚未完成，先补齐该阶段及其 gate，再进入
+targeted reconcile 与 audit；reconcile 不能代替未完成的 completion。恢复结果只证明
+其实际检查和完成的范围。
+
 ### Coordinate closeout input compatibility
 
 `harnessctl workflow-contract` is a read-only capability query. Version 1

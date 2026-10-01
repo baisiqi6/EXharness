@@ -180,6 +180,11 @@ Standalone runtime；Coordinate-managed 使用当前 bootstrap 指定的对应�
 
 ### Step 11：持久化
 
+本节 harnessctl 示例仅适用于独立的 Standalone runtime。Coordinate-managed 根据当前
+bootstrap/operator 指南与 [managed 收口及 fallback 恢复协议](../workflow.md#managed-completion-and-fallback-recovery)
+执行，分别保存 completion、targeted reconcile、audit 的证据；fallback 时保留原 managed
+authority 并留下恢复交接。下方 Standalone 步骤不作为 managed 的替代入口。
+
 session 结束前，区分两种情况：
 
 **情况 A：本轮推进但未完成**
@@ -236,10 +241,11 @@ fail closed；`--force --reason` 是唯一可越过 freshness 的显式 break-gl
 ### Step 12：汇报
 
 简短汇报（不超过 5 行）：
+
 - 改了什么
 - 验证了什么（typecheck/test 结果）
-- 哪些 checklist item 状态变化了
-- 是否有风险或阻塞
+- checklist 状态变化；managed 的 completion/reconcile/audit 实际结果与证据 locator（适用时）
+- 是否有风险或阻塞；fallback 恢复交接 locator（负责人、条件、有界验收条目与退出标准，适用时）
 - 推荐的下一个 slice
 
 详细信息应该写在项目文件里，不在汇报里重复。

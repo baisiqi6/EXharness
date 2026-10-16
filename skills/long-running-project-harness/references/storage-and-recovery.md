@@ -58,6 +58,12 @@ Coordinate 权威状态核验，不维护第二份运行账本。
 - `events.jsonl`: Standalone 的关键动作日志；Coordinate-managed 中只作 fallback/export。
 - `harness-state.json`: 从上述文件派生的机器可读镜像，不手写维护。
 
+state 的 `source.checklist_path` / `checklist_sha256` 只证明实际读取的 checklist 字节，
+`source.coordinate_ledger_included=false` 明确其未读取 Coordinate ledger，不能作为最新
+assignment/event/反馈的证明。恢复时结合 `execution` 的当前租约状态、历史执行人来源，
+以及 `coordination` 的解除阻塞人读取；未知责任 Operator 应回到已有 canonical plan/packet
+核对，不增加另一份责任账本。
+
 ### Storage layout
 
 默认 co-located layout 把稳定规范和 task files 放在同一个 repo harness root。若用户有专用私有

@@ -151,6 +151,14 @@ high-risk 或显式启用 runtime workflow 时，checklist item 从 `todo` 进�
 5. 等待 unblock owner 决策。
 6. 决策完成后运行 `harnessctl unblock <item-id> <actor> --decision "..."`，再由新的 owner `accept` 或重新 `assign`。
 
+恢复摘要中，`execution.lease_state` 区分 `active`、`released`、`expired` 和 `absent`；
+`current_executor` 只来自 active lease，无活动租约时为 `null`。`last_executor` 仅从现有
+`lease.owner` 提供历史线索，不是责任 Operator。当前解除阻塞人仅在 blocked 时从
+`workflow.unblock_owner` 读取，解阻后的历史值不再显示为当前待办。checklist 未记录明确责任
+Operator 时显示 `unknown`，应先核对 canonical plan/packet；不能仅因 owner 为空就重新派发。
+`state` / `session-init` 不读取 Coordinate ledger，缓存自洽也不能证明已读到最新反馈；
+Coordinate-managed 恢复时仍需通过 Coordinate 的只读入口核对。
+
 不要在明显卡住时一味继续“多试几次”。
 
 ## 实现纪律

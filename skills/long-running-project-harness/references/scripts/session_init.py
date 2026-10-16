@@ -241,6 +241,11 @@ def print_summary(state: dict) -> None:
     print(f"Harness root: {project_root() / state['harness_root']}", flush=True)
     print(f"Current status: {state.get('current_status') or 'Unavailable'}", flush=True)
     print(
+        "Source: checklist/cache; Coordinate ledger not included "
+        "(latest ledger feedback: unknown)",
+        flush=True,
+    )
+    print(
         "Checklist summary: "
         f"todo={summary.get('todo', 0)} "
         f"doing={summary.get('doing', 0)} "
@@ -252,7 +257,9 @@ def print_summary(state: dict) -> None:
         print(f"Workflow summary: {workflow_summary}", flush=True)
     if current_item:
         workflow = current_item.get("workflow") or {}
-        lease = current_item.get("active_lease") or current_item.get("lease") or {}
+        lease = current_item.get("lease") or {}
+        execution = current_item.get("execution") or {}
+        coordination = current_item.get("coordination") or {}
         print(
             "Current item: "
             f"{current_item.get('id')} "
@@ -260,14 +267,43 @@ def print_summary(state: dict) -> None:
             f"owner={current_item.get('owner')})",
             flush=True,
         )
+        print(f"Lease: state={execution.get('lease_state', 'unknown')}", flush=True)
+        executor = execution.get("current_executor")
+        print(f"Current executor: {executor if executor is not None else 'none (no active lease)'}", flush=True)
+        print(
+            f"Last executor: {execution.get('last_executor', 'unknown')} "
+            f"(source={execution.get('last_executor_source', 'unknown')})",
+            flush=True,
+        )
         if lease:
             print(
-                "Lease: "
-                f"owner={lease.get('owner')} session={lease.get('session')} "
-                f"expires_at={lease.get('expires_at')}",
+                f"Lease record: session={lease.get('session')} "
+                f"expires_at={lease.get('expires_at')} released_at={lease.get('released_at')}",
+                flush=True,
+            )
+        print(
+            f"Responsible Operator: {coordination.get('responsible_operator', 'unknown')} "
+            f"(source={coordination.get('responsible_operator_source', 'unknown')})",
+            flush=True,
+        )
+        if coordination.get("unblock_owner") is None:
+            print("Unblock owner: none (not blocked)", flush=True)
+        else:
+            print(
+                f"Unblock owner: {coordination['unblock_owner']} "
+                f"(source={coordination.get('unblock_owner_source', 'unknown')})",
                 flush=True,
             )
         print(f"Canonical plan: {current_item.get('plan_path')}", flush=True)
+        for name, path in (current_item.get("artifacts") or {}).items():
+            if name.endswith("_packet") and path:
+                print(f"{name}: {path}", flush=True)
+        if coordination.get("responsible_operator", "unknown") == "unknown":
+            print(
+                "Check canonical plan/packets before assigning; "
+                "an empty owner does not authorize reassignment.",
+                flush=True,
+            )
     else:
         print("Current item: none detected", flush=True)
     print("", flush=True)

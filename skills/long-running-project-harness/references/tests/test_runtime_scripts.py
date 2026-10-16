@@ -540,6 +540,23 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertIsNone(item["owner"])
         self.assertIsNone(item["selected_in_session"])
 
+    def test_blocker_event_targets_named_unblock_owner(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        started = self.run_harness("start", "mvp-001", "worker-a", "session-a")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        blocked = self.run_harness(
+            "blocker", "mvp-001", "--actor", "worker-a",
+            "--unblock-owner", "maintainer-b", "--reason", "Interface review",
+        )
+        self.assertEqual(blocked.returncode, 0, blocked.stderr)
+        events = [json.loads(line) for line in
+                  (self.harness / "events.jsonl").read_text().splitlines()]
+        event = next(event for event in reversed(events) if event["type"] == "BLOCKER")
+        self.assertEqual(event["target"], "maintainer-b")
+        item = self.read_checklist()["items"][0]
+        self.assertIsNone(item["owner"])
+        self.assertIsNotNone(item["lease"].get("released_at"))
+
     def test_blocker_releases_lease_and_unblock_restores_claimable_item(self) -> None:
         self.write_checklist([base_item("mvp-001")])
         start = self.run_harness("start", "mvp-001", "codex", "codex-1")
@@ -602,6 +619,107 @@ class HarnessRuntimeTests(unittest.TestCase):
         state_one["generated_at"] = "<generated>"
         state_two["generated_at"] = "<generated>"
         self.assertEqual(state_one, state_two)
+
+    def test_recovery_summary_distinguishes_lease_states(self) -> None:
+        lease = {
+            "owner": "worker-a",
+            "session": "session-a",
+            "acquired_at": "2026-05-12T00:00:00Z",
+            "expires_at": "2099-01-01T00:00:00Z",
+            "ttl_minutes": 120,
+        }
+        cases = [
+            ("active", "doing", lease, "worker-a", "worker-a", "lease.owner"),
+            ("released", "blocked", {**lease, "released_at": "2026-05-12T01:00:00Z"},
+             None, "worker-a", "lease.owner"),
+            ("expired", "doing", {**lease, "expires_at": "2026-05-12T01:00:00Z"},
+             None, "worker-a", "lease.owner"),
+            ("absent", "blocked", None, None, "unknown", "unknown"),
+        ]
+        for lease_state, status, stored_lease, current, last, last_source in cases:
+            with self.subTest(lease_state=lease_state):
+                self.write_checklist([
+                    base_item(
+                        "mvp-001", status,
+                        owner="worker-a" if status == "doing" else None,
+                        selected_in_session="session-a" if status == "doing" else None,
+                        lease=stored_lease,
+                    )
+                ])
+                result = self.run_harness("session-init", "--skip-typecheck", "--skip-tests")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                state = json.loads((self.harness / "harness-state.json").read_text())
+                execution = state["current_item"].get("execution", {})
+                self.assertEqual(execution.get("lease_state"), lease_state)
+                self.assertEqual(execution["current_executor"], current)
+                self.assertEqual(execution["last_executor"], last)
+                self.assertEqual(execution["last_executor_source"], last_source)
+                self.assertIn(f"Lease: state={lease_state}", result.stdout)
+                displayed_current = current if current is not None else "none (no active lease)"
+                self.assertIn(f"Current executor: {displayed_current}", result.stdout)
+                self.assertIn(f"Last executor: {last} (source={last_source})", result.stdout)
+
+    def test_blocked_recovery_summary_preserves_responsibility_locators(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        started = self.run_harness("start", "mvp-001", "worker-a", "session-a")
+        self.assertEqual(started.returncode, 0, started.stderr)
+        blocked = self.run_harness(
+            "blocker", "mvp-001", "--actor", "worker-a",
+            "--unblock-owner", "maintainer-b", "--reason", "Need interface decision.",
+        )
+        self.assertEqual(blocked.returncode, 0, blocked.stderr)
+        before = (self.harness / "mvp-checklist.json").read_bytes()
+
+        result = self.run_harness("session-init", "--skip-typecheck", "--skip-tests")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads((self.harness / "harness-state.json").read_text())
+        item = state["current_item"]
+        coordination = item.get("coordination", {})
+        self.assertEqual(coordination.get("responsible_operator"), "unknown")
+        self.assertEqual(coordination["responsible_operator_source"], "unknown")
+        self.assertEqual(coordination["unblock_owner"], "maintainer-b")
+        self.assertEqual(coordination["unblock_owner_source"], "workflow.unblock_owner")
+        self.assertIn("Responsible Operator: unknown", result.stdout)
+        self.assertIn("Unblock owner: maintainer-b (source=workflow.unblock_owner)", result.stdout)
+        self.assertIn("Canonical plan: docs/project-harness/tasks/mvp-001/plan.md", result.stdout)
+        self.assertIn("blocker_packet: docs/project-harness/current/blocker-packet.md", result.stdout)
+        self.assertIn("Check canonical plan/packets before assigning", result.stdout)
+        self.assertEqual((self.harness / "mvp-checklist.json").read_bytes(), before)
+        stored = self.read_checklist()["items"][0]
+        self.assertIsNone(stored["owner"])
+        self.assertIsNone(stored["selected_in_session"])
+        self.assertIsNotNone(stored["lease"]["released_at"])
+
+    def test_recovery_summary_does_not_reuse_resolved_unblock_owner(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        for args in (
+            ("start", "mvp-001", "worker-a", "session-a"),
+            ("blocker", "mvp-001", "--unblock-owner", "maintainer-b", "--reason", "Decision."),
+            ("unblock", "mvp-001", "maintainer-b", "--decision", "Proceed."),
+            ("accept", "mvp-001", "worker-c", "session-c"),
+            ("sync", "mvp-001"),
+        ):
+            transition = self.run_harness(*args)
+            self.assertEqual(transition.returncode, 0, transition.stderr)
+        self.assertEqual(self.read_checklist()["items"][0]["workflow"]["unblock_owner"], "maintainer-b")
+
+        result = self.run_harness("session-init", "--skip-typecheck", "--skip-tests")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads((self.harness / "harness-state.json").read_text())
+        item = state["current_item"]
+        self.assertEqual(item["execution"]["current_executor"], "worker-c")
+        self.assertIsNone(item["coordination"]["unblock_owner"])
+        self.assertIn("Unblock owner: none (not blocked)", result.stdout)
+        self.assertNotIn("Unblock owner: maintainer-b", result.stdout)
+
+    def test_recovery_summary_marks_coordinate_ledger_as_unread(self) -> None:
+        self.write_checklist([base_item("mvp-001")])
+        result = self.run_harness("session-init", "--skip-typecheck", "--skip-tests")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads((self.harness / "harness-state.json").read_text())
+        self.assertIs(state["source"].get("coordinate_ledger_included"), False)
+        self.assertIn("Coordinate ledger not included", result.stdout)
+        self.assertIn("latest ledger feedback: unknown", result.stdout)
 
     # ------------------------------------------------------------------
     # U1: resolver / migration matrix

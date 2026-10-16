@@ -119,7 +119,7 @@ def main() -> int:
         "BLOCKER",
         task=args.item,
         actor=args.actor or item.get("owner") or "operator",
-        target="human",
+        target=args.unblock_owner,
         status="blocked",
         artifacts=[rel(packet_path)],
         summary=reason,

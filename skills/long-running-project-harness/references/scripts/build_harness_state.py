@@ -23,6 +23,7 @@ from harness_common import (
     event_log_path,
     fail,
     harness_root,
+    lease_is_expired,
     load_config,
     project_root,
     read_text,
@@ -121,6 +122,21 @@ def detect_current_item(checklist: dict[str, Any], current_text: str) -> dict[st
     # The plan locator authority is the checklist (via the unified resolver);
     # the pointer only helps locate the item and must not override it.
     plan_path = rel(resolve_item_plan(item, require_exists=False))
+    now = utc_now()
+    lease = item.get("lease")
+    current_lease = active_lease(item, now)
+    if current_lease is not None:
+        lease_state = "active"
+    elif isinstance(lease, dict) and lease.get("released_at"):
+        lease_state = "released"
+    elif lease_is_expired(item, now):
+        lease_state = "expired"
+    else:
+        lease_state = "absent"
+    last_executor = lease.get("owner") if isinstance(lease, dict) else None
+    workflow = item.get("workflow") or {}
+    is_blocked = item.get("status") == "blocked" or workflow.get("status") == "blocked"
+    unblock_owner = workflow.get("unblock_owner") if is_blocked else None
 
     return {
         "id": item["id"],
@@ -131,7 +147,19 @@ def detect_current_item(checklist: dict[str, Any], current_text: str) -> dict[st
         "updated_at": item.get("updated_at"),
         "workflow": item.get("workflow"),
         "lease": item.get("lease"),
-        "active_lease": active_lease(item, utc_now()),
+        "active_lease": current_lease,
+        "execution": {
+            "lease_state": lease_state,
+            "current_executor": (current_lease.get("owner") or "unknown") if current_lease is not None else None,
+            "last_executor": last_executor or "unknown",
+            "last_executor_source": "lease.owner" if last_executor else "unknown",
+        },
+        "coordination": {
+            "responsible_operator": "unknown",
+            "responsible_operator_source": "unknown",
+            "unblock_owner": (unblock_owner or "unknown") if is_blocked else None,
+            "unblock_owner_source": "workflow.unblock_owner" if unblock_owner else "unknown",
+        },
         "artifacts": item.get("artifacts", {}),
         "review": item.get("review", {}),
         "plan_path": plan_path,
@@ -257,6 +285,7 @@ def build_state() -> dict[str, Any]:
         "source": {
             "checklist_path": rel(resolved_checklist_path),
             "checklist_sha256": checklist_sha256,
+            "coordinate_ledger_included": False,
         },
         "current_status": compact_text(extract_section(progress_text, "## Current Status")),
         "current_item": current_item,

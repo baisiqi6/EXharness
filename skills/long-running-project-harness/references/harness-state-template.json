@@ -4,7 +4,8 @@
   "generated_at": "YYYY-MM-DDTHH:MM:SSZ",
   "source": {
     "checklist_path": "docs/project-harness/harness-checklist.json",
-    "checklist_sha256": "<64 hex of the exact bytes the resolver read>"
+    "checklist_sha256": "<64 hex of the exact bytes the resolver read>",
+    "coordinate_ledger_included": false
   },
   "current_status": "Brief human-readable project summary derived from progress.md",
   "current_item": {
@@ -31,6 +32,18 @@
       "acquired_at": "YYYY-MM-DDTHH:MM:SSZ",
       "expires_at": "YYYY-MM-DDTHH:MM:SSZ",
       "ttl_minutes": 120
+    },
+    "execution": {
+      "lease_state": "active",
+      "current_executor": "codex",
+      "last_executor": "codex",
+      "last_executor_source": "lease.owner"
+    },
+    "coordination": {
+      "responsible_operator": "unknown",
+      "responsible_operator_source": "unknown",
+      "unblock_owner": null,
+      "unblock_owner_source": "unknown"
     },
     "artifacts": {
       "plan": "docs/project-harness/tasks/mvp-003/plan.md"

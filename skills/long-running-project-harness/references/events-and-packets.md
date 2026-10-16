@@ -19,9 +19,11 @@ ordinary 模式不强制此三联动作。
 [ACCEPT]  task=<id> actor=<agent> status=running
 [RESULT]  task=<id> actor=<agent> target=<reviewer> status=closeout_requested
 [REVIEW]  task=<id> actor=<reviewer> status=approved|changes_requested|blocked
-[BLOCKER] task=<id> actor=<agent> target=human status=blocked
+[BLOCKER] task=<id> actor=<agent> target=<unblock_owner> status=blocked
 [CLOSE]   task=<id> actor=<operator> status=done
 ```
+
+`BLOCKER.target` 与 `workflow.unblock_owner` 一致；未传 `--unblock-owner` 时默认 `human`。
 
 事件落点由 deployment profile 决定。Standalone 的 `events.jsonl` 是 append-only
 event log / outbox candidate，当前脚本只写 `publish_status=local_only`；

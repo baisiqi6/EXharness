@@ -127,6 +127,37 @@ class WorkspaceInventoryTests(unittest.TestCase):
         self.assertIsNone(report["remote_ref_sha"])
         self.assertEqual(report["canonical"]["head_in_integration"], None)
 
+    def test_submodule_commit_change_is_a_tracked_change_without_scanning_its_files(self):
+        repo = init_repo(self.tmp)
+        source_base = self.tmp / "submodule-source"
+        source_base.mkdir()
+        source = init_repo(source_base)
+        run_git(repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(source), "child")
+        run_git(repo, "commit", "-q", "-m", "track child")
+        child = repo / "child"
+        run_git(child, "config", "user.email", "test@example.com")
+        run_git(child, "config", "user.name", "Test User")
+        run_git(child, "config", "commit.gpgsign", "false")
+        (child / "data.txt").write_text("new child commit\n", encoding="utf-8")
+        run_git(child, "add", "data.txt")
+        run_git(child, "commit", "-q", "-m", "advance child")
+        for staged in (False, True):
+            with self.subTest(staged=staged):
+                if staged:
+                    run_git(repo, "add", "child")
+                report = self.module.collect(repo, "main", "origin")
+                self.assertEqual(report["canonical"]["tracked_changes"], 1)
+                self.assertIn("canonical_has_changes", report["warnings"])
+
+        # Restore the superproject pointer to the current child commit. Internal
+        # tracked/untracked file changes alone stay outside this report's scope.
+        run_git(repo, "commit", "-q", "-m", "accept child pointer")
+        (child / "data.txt").write_text("internal edit\n", encoding="utf-8")
+        (child / "untracked.txt").write_text("internal only\n", encoding="utf-8")
+        report = self.module.collect(repo, "main", "origin")
+        self.assertEqual(report["canonical"]["tracked_changes"], 0)
+        self.assertNotIn("canonical_has_changes", report["warnings"])
+
     def test_external_git_filter_blocks_clean_claim(self):
         repo = init_repo(self.tmp)
         (repo / ".gitattributes").write_text("*.evil filter=evil\n", encoding="utf-8")

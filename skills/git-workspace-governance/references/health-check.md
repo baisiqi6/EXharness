@@ -72,7 +72,7 @@ python3 <skill-dir>/references/scripts/check_workspace_state.py --integration-br
 
 - 报告是**本地观察**，不是跨会话锁或全局一致快照；扫描期间其它进程可能改变状态；
 - 使用缓存的远程 ref，不保证与远程实时一致；
-- 不扫描 submodule 内部状态（需在各自仓库单独运行）；
+- 保留 superproject 的 submodule 提交指针（gitlink）变化；不扫描 submodule 内部文件改动（需在各自仓库单独运行）；
 - `head_in_integration=false` 只说明不是祖先，不能断言“未合入”（可能 squash）；
 - 不判断 owner、PR 等价关系、活跃运行依赖或 ignored 资产，因此**不构成清理授权**。
 

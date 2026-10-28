@@ -20,7 +20,7 @@
 ## 2. 最小备份的几种载体
 
 - **Git bundle**：保存本地独有 refs/历史。`git bundle create <file> --all`（或指定 refs）；
-- **补丁**：`git diff --staged`、`git diff`、`git diff --binary`，以及未跟踪文件清单；
+- **补丁**：分别用 `git diff --staged --binary` 保存 staged 改动、`git diff --binary` 保存 unstaged 改动，并保留未跟踪文件清单；
 - **打包**：只打包确认不可再生的路径，显式列清单，避免整目录快照；
 - **私密配置**：单独小包，目录 0700、文件 0600，不进入 Git 或公开归档分支。
 

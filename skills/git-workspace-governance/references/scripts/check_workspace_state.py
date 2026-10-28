@@ -195,7 +195,7 @@ def collect(repo_path, integration_branch, remote):
                 "--porcelain=v1",
                 "-z",
                 "--untracked-files=all",
-                "--ignore-submodules=all",
+                "--ignore-submodules=dirty",
             )
             row["tracked_changes"], row["untracked_files"] = change_counts(raw)
             diff = divergence(path, row["head"], remote_ref_sha)

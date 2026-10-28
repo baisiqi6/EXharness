@@ -54,6 +54,18 @@ authority:       这份备份不构成任何清理授权
 4. 逐项执行普通（非 force）Git 操作；
 5. 报告实际删除/保留了什么，以及仍待确认的项。
 
+分支级候选与 worktree 级候选要分开核对，避免只看其中一种：
+
+```bash
+git worktree list --porcelain                                  # worktree 级
+git branch --merged <remote>/<integration>                     # 分支级（* / + 标记当前检出）
+git rev-list --left-right --count <remote>/<integration>...<branch>
+git log <remote>/<integration> --merges --oneline --grep='<branch>'   # PR/merge 证据
+```
+
+合并记录缺失不代表未合入：squash 合入会在主线上产生新 SHA，应结合提交标题、PR 编号或
+`rev-list --count` 交叉核对，不能只看祖先关系。
+
 “干净”“已合入”“PR 已关闭”只是候选信号，都不是删除授权。
 
 ## 6. 禁止操作

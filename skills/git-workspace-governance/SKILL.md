@@ -19,6 +19,22 @@ description: Use when multiple sessions or agents share one repository, when a p
 
 只做一次无关的小改动、且当前树干净且已在集成分支上时，不必加载本 skill。
 
+## 建议动作：把规范入口挂进项目的 AGENTS.md（需人类授权）
+
+跨 session、换模型后，agent 经常会忘记工作区约定和可用工具。最可靠的提醒位置是项目每轮都会读的 `AGENTS.md`（或等价的 instructions 文件），而不是聊天记录。
+
+**先向用户提出建议并取得明确授权，再修改 `AGENTS.md`。** 它是项目的长期准则文件，agent 不得自行编辑，只能给出草案由人类拍板。用户同意后，通过项目正常 PR 流程加入类似 2–4 行：
+
+```markdown
+- 仓库级工作区治理（canonical checkout / task worktree / 清理备份 / 发布 SHA）：
+  使用 skill `git-workspace-governance`；接手、清理或发布核对前先运行其只读体检。
+- 修改本文件需要人类确认；项目规范优先于 skill 的缺省框架。
+```
+
+- 只放入口和边界，不要整份复制 skill 内容（会重复、漂移、挤占上下文）；
+- 没有 `AGENTS.md` 的项目，先建议用户创建，不要擅自新建或改写别人的 instructions 文件；
+- 不同项目形态的写法与授权话术见 [project-onboarding.md](references/project-onboarding.md)。
+
 ## 三种位置
 
 | 位置 | 用途 | 边界 |
@@ -90,6 +106,7 @@ python3 <skill-dir>/references/scripts/check_workspace_state.py --repo . --json
 - 不把“干净”“已合入”当作清理授权；不把“合入”当作发布授权
 - 不把依赖、虚拟环境、浏览器缓存、构建产物当作必须备份的资产
 - 不把本地缓存的分支或 SHA 当作远程事实
+- 不擅自修改项目的 `AGENTS.md` 等 instructions 文件；只能提出建议并等待人类授权
 
 ## 按需读取
 
@@ -101,6 +118,7 @@ python3 <skill-dir>/references/scripts/check_workspace_state.py --repo . --json
 | 发布前 SHA 核对 | [release-verification.md](references/release-verification.md) |
 | 体检脚本契约与限制 | [health-check.md](references/health-check.md) |
 | 常见自欺与红旗 | [anti-patterns.md](references/anti-patterns.md) |
+| 把规范入口挂进项目 AGENTS.md（需人类授权） | [project-onboarding.md](references/project-onboarding.md) |
 | 没有其它 skill 时的最小闭环 | [standalone-fallbacks.md](references/standalone-fallbacks.md) |
 
 ## 报告要求

@@ -48,6 +48,8 @@
 - **清理与备份**：先备份后删除，只保不可再生的最小集合；备份不授权清理，清理逐项确认。
 - **发布核对**：合并、部署、业务验收分离；发布前读回四个 SHA。
 - **只读体检脚本**：`references/scripts/check_workspace_state.py`，不 fetch、不修复，报告主 checkout 漂移与全部 worktree 状态。
+- **项目接入建议**：建议把规范入口写进项目 `AGENTS.md` 或等价 instructions 文件，减少跨 session/换模型后的遗忘；
+  **修改 `AGENTS.md` 必须由人类授权**，agent 只给草案，详见 skill 内的 `project-onboarding` 参考。
 
 本 skill 自包含、可单独安装；对其它 skill 只做“可选集成”提示，不要求、不检查、也不调用它们。
 

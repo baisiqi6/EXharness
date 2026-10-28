@@ -1,6 +1,6 @@
 # EXharness
 
-一组面向长期工程项目和多 agent 协作的 agent skill。本仓库是一个 skill 集合（monorepo），包含两个互相独立、各有所长的 skill。
+一组面向长期工程项目和多 agent 协作的 agent skill。本仓库是一个 skill 集合（monorepo），包含三个互相独立、各有所长的 skill。
 
 长期项目最常见的失败不是写不出代码，而是**方向感丢失**：换一个 session 就忘了上次做到哪、为什么这么决定、还差什么。本仓库的 skill 围绕这个问题——让项目状态落盘、可恢复、可审计，并让多个 agent 能实际协作推进。
 
@@ -22,7 +22,7 @@
 
 这个 skill 借鉴的是"持久化文件、checklist、progress log、git checkpoint、deterministic session init"这类通用 harness 方法，而不是任何外部框架的代码、prompt、文件结构或命名约定。
 
-它是**协议优先**：先保证文件语义正确，再用薄脚本减少机械工作。它不是自动代理框架，不替你做产品决策；真正的自动协调、跨主机运行状态和可靠消息投递放到独立的 runtime 层（见下文「两个 skill 的关系」中列出的 runtime 实现选项）。
+它是**协议优先**：先保证文件语义正确，再用薄脚本减少机械工作。它不是自动代理框架，不替你做产品决策；真正的自动协调、跨主机运行状态和可靠消息投递放到独立的 runtime 层（见下文「三个 skill 的关系」中列出的 runtime 实现选项）。
 
 ### `invoke-coding-agents` — agent 调用与监督方法
 
@@ -34,11 +34,29 @@
 - **provider 路由**：每个 agent CLI 一份 reference，实时核验 binary/model，不硬编码历史路由。
 - **监督与验收**：worker 自述、测试通过、reviewer verdict、operator acceptance 是不同证据，不混为一谈。
 
-## 两个 skill 的关系
+### `git-workspace-governance` — 仓库级工作区治理
+
+当多个 session / agent 共用同一个仓库，或本地主 checkout 脏了、停在旧分支、落后远程主线，
+需要判断 canonical checkout、任务 worktree 与发布快照的边界，或在清理前决定备份什么、
+发布前核对实际发布的 SHA 时使用。
+
+核心能力：
+
+- **位置模型**：canonical checkout 只保持集成分支；任务在独立 worktree；发布用 tag 或固定 SHA 快照。
+- **主线纪律**：集成主线只经审查合入；任务从最新远程集成分支的精确 ref 建支；共享已推历史不改写。
+- **事实来源**：远程 ref > canonical 磁盘内容 > 本地缓存；“这是主线代码 / 已合入 / 可清理”都先只读核对。
+- **清理与备份**：先备份后删除，只保不可再生的最小集合；备份不授权清理，清理逐项确认。
+- **发布核对**：合并、部署、业务验收分离；发布前读回四个 SHA。
+- **只读体检脚本**：`references/scripts/check_workspace_state.py`，不 fetch、不修复，报告主 checkout 漂移与全部 worktree 状态。
+
+本 skill 自包含、可单独安装；对其它 skill 只做“可选集成”提示，不要求、不检查、也不调用它们。
+
+## 三个 skill 的关系
 
 它们**互相独立，各满足不同需求**，不是依赖关系：
 
 - `invoke-coding-agents` 满足独立需求："调某个 agent 干件事"——不需要项目 harness 协议。
+- `git-workspace-governance` 维护的是**工作区边界**（谁在哪写、主线怎么改、清理/备份/发布怎么授权），不规定任务协议，也不负责调起 agent。
 - `long-running-project-harness` 维护的是**协议**（谁负责什么、任务怎么流转、状态怎么落盘、交接怎么留痕），**不规定 runtime 面怎么推进任务**。推进任务时用哪种 runtime 实现，由用户根据场景自选。
 
 `long-running-project-harness` 常见的 runtime 实现从轻到重：
@@ -63,6 +81,8 @@
 | 需要 durable job、任务状态、事件、审查记录和可恢复流程 | EXharness + Coordinate |
 | 需要系统自动调用 agent CLI、恢复 provider session 或跨宿主机执行 | EXharness + Coordinate + MultiNexus `agentd/adapters` |
 | 需要 Discord/KOOK、多 Bot 和多 agent 可见协作 | 三者完整部署 |
+| 多个 session / agent 共用一个仓库，需要判断主 checkout、worktree、清理与发布边界 | `git-workspace-governance` |
+| 接手仓库先做只读工作区盘点 | `git-workspace-governance`（自带体检脚本） |
 
 选择原则是“只安装解决当前问题的最小层级”。Coordinate 提供确定性控制面，但不会因为安装完成就
 自动获得 Claude Code、Qoder、Grok 等 vendor runtime 的原生 session 控制；这部分由当前 agent、
@@ -83,8 +103,10 @@ git clone https://github.com/baisiqi6/EXharness.git
 #    (具体位置因 client 而异,以你的 client 文档为准)
 cp -R EXharness/skills/long-running-project-harness ~/.agents/skills/
 cp -R EXharness/skills/invoke-coding-agents        ~/.agents/skills/
+cp -R EXharness/skills/git-workspace-governance    ~/.agents/skills/
 
-# 3. 重启 session,确认 client 能读到两个 skill 的 SKILL.md
+# 3. 重启 session,确认 client 能读到对应 skill 的 SKILL.md
+#    三个 skill 均可单独安装；跨 skill 的提及只是可选集成，不构成依赖。
 ```
 
 装好 `long-running-project-harness` 后，在你的项目里告诉 agent「用 long-running-project-harness 给这个项目建 harness」，它会按协议创建标准文件：
@@ -185,6 +207,16 @@ harnessctl migrate-checklist   # legacy 名 -> 新名，同目录 rename，不�
 必须能解析到可读 canonical plan，active review/closeout phase 必须有可读的绑定 packet。
 关闭后的 `current/*` cache 与历史 events 不扫描；这些 warning 不改变 validate 的退出码，
 `review-result` / `mark-done` 的 hard gate 仍独立 fail closed。
+
+`git-workspace-governance` 的只读体检脚本与自包含测试（只依赖 Python 标准库）：
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s skills/git-workspace-governance/references/scripts/tests -p 'test_*.py'
+python3 skills/git-workspace-governance/references/scripts/check_workspace_state.py --repo . --json
+```
+
+测试同时验证：skill 目录被单独复制后所有相对链接仍可解析、脚本可运行、不包含机器特定绝对路径、不引用其它 skill 的路径。
 
 `references/scripts/` 是生成项目实例 runtime 的**模板**（含 `{{占位符}}`），不是安装器。
 

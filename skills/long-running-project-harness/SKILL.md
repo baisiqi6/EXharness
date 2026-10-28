@@ -23,6 +23,8 @@ description: Use this skill when the user explicitly wants a long-running projec
 - 只使用 `ordinary` / `high-risk` 两种风险模式；模式、运行方式、协作方式分别判断。
 - 测试通过、审查通过、用户授权、合并、部署和平台验收是不同事实，不相互替代。
 - 不覆盖其他 writer 的修改或 active lease；每个并行 writer 使用独立 branch/worktree。
+  仓库级工作区边界（canonical checkout、清理/备份授权、发布 SHA 核对）见配套 skill
+  `git-workspace-governance`（可选；未安装时按本 skill 的 branch/worktree 边界执行）。
 - 产品代码、CLI/schema 与 runbook 是实例事实；本 skill 维护可泛化协议，不复制运行时手册，
   不增加 Issue tracker、分布式锁或第二套运行账本。用户当前明确要求优先，既有有界授权持续有效。
 

@@ -42,6 +42,7 @@ Reviewer 与 Worker 的 session 和 mutation authority 必须独立，但“独�
    - 指定唯一 `cwd`；跨仓库只添加确实需要的目录。
    - 写任务时列出允许修改路径、禁止事项、测试、最终输出和 hard stop。
    - 可写任务优先使用隔离 worktree。相同物理 agent 可以同时服务多个项目，但必须使用不同 session 和不同 workspace/worktree。
+   - 仓库级工作区状态、canonical checkout 与清理/发布授权边界见配套 skill `git-workspace-governance`（可选；未安装时按本 skill 的 cwd/allowlist 边界执行）。
 
 3. **创建可定位 session**
    - 优先使用 provider 支持的显式 session ID/name。

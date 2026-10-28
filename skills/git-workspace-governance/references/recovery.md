@@ -28,7 +28,7 @@ git rev-parse <remote>/<integration>
 | 类别 | 判别 | 处理 |
 |---|---|---|
 | A. 旧副本 | 路径在集成分支也存在，内容相同或明显更旧 | 列入“待删除清单”，逐条确认后删除；不做批量 clean |
-| B. 不可再生内容 | 任何 ref 里都没有的 untracked、本地配置、证据 | 按备份规范归档或提交到归档分支 |
+| B. 不可再生内容 | 任何 ref 里都没有的 untracked、本地配置、证据 | 非敏感内容按备份规范归档或提交到归档分支；凭据和私密配置只做私密备份，不进入 Git |
 | C. 未提交的 tracked 改动 | `git status` 的 modified/staged | 确认归属：提交到任务分支、归档补丁，或明确丢弃 |
 
 对 B 类要比较内容而不是只看路径；“集成分支没有同名文件”不等于“其它 ref 也没有”。
@@ -53,7 +53,7 @@ git worktree list           # canonical 应显示集成分支
 
 - `git status --short --branch` 干净且在集成分支；
 - `git rev-parse HEAD` 与 `<remote>/<integration>` 一致（或在允许的落后范围内）；
-- 只读体检脚本无 `canonical_not_main` / `canonical_has_changes` / `local_integration_behind` 告警；
+- 只读体检脚本无 `canonical_not_integration` / `canonical_has_changes` / `local_integration_behind` 告警；
 - 报告“恢复前 / 恢复后”的 SHA 和清理清单。
 
 ## 失败处理

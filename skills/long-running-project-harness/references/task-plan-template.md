@@ -81,6 +81,7 @@ symlink 绕过。
 - Architecture boundaries checked:
 - Domain-model decisions checked:
 - Potential overlap with other items:
+- 从实际入口核对当前基线的 API、配置选项、调用方或测试，链接已有能力的证据。需要新增机制或改变兼容行为时，对照原实现、最小复用方案与拟议方案，记录各自覆盖的验收项、缺口、兼容差异和验证方法。简单任务用一句话写清复用依据即可。
 - Community candidate collision evidence（仅外部社区候选适用；链接任务证据）:
 - Collision decision / checked stage / UTC time（适用时填写，不作为 checklist status）:
 

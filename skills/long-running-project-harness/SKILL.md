@@ -30,7 +30,7 @@ description: Use this skill when the user explicitly wants a long-running projec
 
 ## 开始任务：先判断三个维度
 
-读取当前项目规范、请求范围和必要的 Git/harness 状态，再按下列条件选择路径。
+读取当前项目规范、请求范围和必要的 Git/harness 状态，再按下列条件选择路径。使用工程方法前，先按[从任务节点接续](references/storage-and-recovery.md#从任务节点接续)定位任务记录。
 不要因为普通任务可直接实现，就跳过适用的协作前置检查。
 
 | 维度 | 判断与动作 |
@@ -79,11 +79,14 @@ high-risk 处理，不能自行按 ordinary 降级。
 范围扩大、owner 冲突、authority 不足或事实无法核验时，先记录具体缺口与可继续的独立工作；
 不要静默接手、把未执行的检查写成通过，或为跨过阻塞而修改规则。
 
-## 与其他 skills 配合
+## 可选集成（非依赖）
 
-- `planning-with-files`：当前 slice 的战术记录，不另建第二份项目计划。
-- `invoke-coding-agents`：确需外部 provider 时管理进程与 session；本协议不绑定执行器。
-- `coordinate-operator`：实际操作 Coordinate 时按其子模块执行；EXharness 不复制其 CLI 用法。
-- GitHub 发布时按协作子 skill 的 provenance 路由声明真实来源；不把 provenance 当授权。
+| 能力 | 示例 | 未安装时 |
+| --- | --- | --- |
+| 设计、任务拆解、调试与审查 | `coding-orchestrator`、`brainstorming`、`writing-plans`、`planning-with-files` | 沿用项目自己的工程方法 |
+| 外部 agent 进程与 session 管理 | `invoke-coding-agents` | 使用项目已有执行入口 |
+| Coordinate 操作 | `coordinate-operator` | 使用项目已授权的 managed 入口，缺少入口时报告阻塞 |
+
+GitHub 发布时按协作子 skill 的 provenance 路由声明真实来源；不把 provenance 当授权。
 
 结束时简要报告变更、验证、当前状态与下一步。详细轨迹留在任务证据中，不塞回父 skill。

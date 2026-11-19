@@ -17,7 +17,7 @@
 核心能力：
 
 - **项目记忆**：`scope.md`（长期目标 + non-goals）、`architecture.md`、`domain-model.md`、`runbook.md` 等稳定规范，加上 `harness-checklist.json` 的机器可读任务状态（legacy 名 `mvp-checklist.json` 继续兼容）。
-- **任务追踪**：每个任务有 `tasks/<item-id>/plan.md` canonical plan 和 task-scoped evidence（bootstrap、review、handoff、verdict、receipt），不会被后续任务覆盖。
+- **任务追踪**：每个任务有唯一计划（默认 `tasks/<item-id>/plan.md`） 和 task-scoped evidence（bootstrap、review、handoff、verdict、receipt），不会被后续任务覆盖。
 - **多 agent 协作协议**：operator / worker / reviewer 显式分工，handoff / review / blocker / closeout packet 让交接可定位、可审计；`events.jsonl` 追加记录关键事件。
 - **GitHub-backed 团队协作**：直接复用 Issue identity、assignee、branch/worktree 与 PR；EXharness 负责计划、执行、验证和恢复，不再造 issue tracker 或 distributed lock。
 - **薄运行层**：`harnessctl` 命令、checklist 校验、状态派生、packet 生成、本地 owner/lease 护栏、确定性 session init——减少人工搬运，但不取代你的判断。
@@ -147,7 +147,7 @@ docs/project-harness/
   runbook.md            # 操作手册
   events.jsonl          # append-only 关键事件日志
   current/              # 当前任务指针 + handoff/review/blocker packet
-  tasks/<item-id>/plan.md   # 每个任务的 canonical plan
+  tasks/<item-id>/plan.md   # 默认的任务计划位置
 ```
 
 之后每次开新 session，agent 会先读这些文件恢复上下文，而不是从零开始。
@@ -167,7 +167,7 @@ assignment/lease/receipt。一端平台验收不替代另一端。
 按需入口：
 
 - [执行与角色](skills/long-running-project-harness/references/workflow.md)
-- [存储与恢复](skills/long-running-project-harness/references/storage-and-recovery.md)
+- [存储与恢复](skills/long-running-project-harness/references/storage-and-recovery.md)，包括[使用工程方法时如何从任务节点接续](skills/long-running-project-harness/references/storage-and-recovery.md#从任务节点接续)。
 - [可选运行层设置](skills/long-running-project-harness/references/runtime-setup.md)
 - [Checklist 契约](skills/long-running-project-harness/references/checklist-contract.md)
 - [事件与 packet 新鲜度](skills/long-running-project-harness/references/events-and-packets.md)

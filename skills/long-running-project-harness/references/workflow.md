@@ -128,7 +128,7 @@ high-risk 或显式启用 runtime workflow 时，checklist item 从 `todo` 进�
 
 1. 先检查 dependencies、blocked 状态、owner 和 active lease。
 2. 领取 owner/session lease；如果覆盖别人的 active lease，必须使用 `--force --reason` 并写入事件。
-3. 创建或更新 `tasks/<item-id>/plan.md`。
+3. 按[从任务节点接续](storage-and-recovery.md#从任务节点接续)确认本项计划的实际位置并更新正文。
 4. 再更新 `current/task_plan.md`，让它指向当前激活的 item 计划文件。
 5. 在计划正文里明确当前 item、目标、范围边界、非目标、验证方式和退出条件。
 6. 追加 `[ACCEPT]` 事件后再开始实现。
@@ -166,7 +166,7 @@ Coordinate-managed 恢复时仍需通过 Coordinate 的只读入口核对。
 - 优先完成一个 vertical slice，而不是铺很多半成品层。
 - core model 要小而明确。
 - 只有 MVP 已经有真实调用方时，才添加 extension point。
-- 如果同时使用 `planning-with-files`，只为当前选中的 slice 创建战术计划，不要重新为整个项目建一套计划。
+- 采用外部工程方法时，按[从任务节点接续](storage-and-recovery.md#从任务节点接续)记录本轮工作。
 - 实例仓库的产品代码、CLI、schema 和生产 runbook 是具体事实；只有确认可泛化的
   协议语义才回流 global skill，不执行机械的“skill 先于实例”镜像顺序。
 - `harness-state.json` 应由脚本派生，不要手写维护成第三份 source of truth。

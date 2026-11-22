@@ -113,6 +113,9 @@ cp -R EXharness/skills/git-workspace-governance    ~/.agents/skills/
 #    三个 skill 均可单独安装；跨 skill 的提及只是可选集成，不构成依赖。
 ```
 
+安装 `long-running-project-harness` 后，可以直接告诉 agent“使用 EXharness 接续这个任务”。
+编码、测试和审查沿用项目已有规范与工具；文中列举的外部工程方法 skill 供已安装的用户按需选用。
+
 ### 已有安装的升级与核对
 
 三个 skill **独立安装、独立更新**。新增或更新一个 skill，不代表其它 skill 已更新；管理器显示的
@@ -201,6 +204,8 @@ invoke-coding-agents）就够；只有出现 durable control-plane、托管 exec
 ## 验证
 
 `long-running-project-harness` 的运行层测试（只依赖 Python 标准库）：
+
+这些测试也覆盖主 skill 的 EXharness 触发描述、登记计划的读取、旧路径兼容和缺失计划的处理。
 
 ```bash
 cd skills/long-running-project-harness

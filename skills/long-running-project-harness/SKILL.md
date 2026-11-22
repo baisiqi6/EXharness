@@ -1,12 +1,13 @@
 ---
 name: long-running-project-harness
-description: Use this skill when the user explicitly wants a long-running project harness, multi-session project memory, clean-room rebuild discipline, project-level planning assets, or coordinated handoff between agents/sessions. It defines a durable project protocol with scope, architecture, MVP checklist, handoff/progress, and runbook files while avoiding accidental copying of external source, API shapes, names, prompts, docs, UI text, tests, or data structures. Do not trigger for ordinary multi-step coding unless the user asks for project harnessing, cross-session continuity, clean-room constraints, or durable planning files.
+description: Use when the user asks to use EXharness, requests a long-running project harness, persistent project plans, cross-session recovery, multi-agent handoffs, or clean-room project discipline, or continues a project already using this protocol. Ordinary coding tasks alone do not trigger project harness initialization.
 ---
 
-# Long-Running Project Harness
+# Long-Running Project Harness（EXharness）
 
 让项目在跨 session、跨 agent 工作中可恢复、可审阅、可交接。本入口只保留跨场景约束和路由；
 细节在实际操作前按需读取，不一次性加载所有模块。
+用户说“使用 EXharness”时从本入口开始，按当前任务需要选择后续模块。
 
 ## 适用范围
 
@@ -81,9 +82,9 @@ high-risk 处理，不能自行按 ordinary 降级。
 
 ## 可选集成（非依赖）
 
-| 能力 | 示例 | 未安装时 |
+| 能力 | 示例（如已安装） | 未安装时 |
 | --- | --- | --- |
-| 设计、任务拆解、调试与审查 | `coding-orchestrator`、`brainstorming`、`writing-plans`、`planning-with-files` | 沿用项目自己的工程方法 |
+| 设计、任务拆解、调试与审查 | `coding-orchestrator`、`brainstorming`、`writing-plans`、`planning-with-files` | 使用项目规范、现有工具与本 skill 的计划和审查模板 |
 | 外部 agent 进程与 session 管理 | `invoke-coding-agents` | 使用项目已有执行入口 |
 | Coordinate 操作 | `coordinate-operator` | 使用项目已授权的 managed 入口，缺少入口时报告阻塞 |
 

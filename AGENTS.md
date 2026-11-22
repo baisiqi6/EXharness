@@ -14,15 +14,16 @@
 
 ## 1. 项目定位
 
-EXharness 是面向长期工程项目与多 agent 协作的 **skill 集合（monorepo）**。三个 skill 互相独立、各自安装、互不依赖：
+EXharness 是面向长期工程项目与多 agent 协作的 **skill 集合（monorepo）**。四个 skill 互相独立、各自安装、互不依赖：
 
 | Skill | 职责 |
 |---|---|
 | [long-running-project-harness](skills/long-running-project-harness/SKILL.md) | 长期项目协议：任务账本、交接/审查/closeout、runtime 边界 |
 | [invoke-coding-agents](skills/invoke-coding-agents/SKILL.md) | 调起、监督、恢复、验收本地外部 coding agent CLI |
 | [git-workspace-governance](skills/git-workspace-governance/SKILL.md) | 仓库级工作区治理：canonical/main、worktree、清理备份、发布 SHA、只读体检 |
+| [coding-orchestrator](skills/coding-orchestrator/SKILL.md) | 工程方法选择、按需规范接入与实际冲突处理 |
 
-三者可单独使用，也可组合；任何一方都不得把其它 skill 当成硬依赖。
+各 skill 可单独使用，也可组合；任何一方都不得把其它 skill 当成硬依赖。
 
 ## 2. 接手顺序
 
@@ -83,6 +84,8 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
   -s skills/long-running-project-harness/references/tests -p 'test_*.py'
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
   -s skills/git-workspace-governance/references/scripts/tests -p 'test_*.py'
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s skills/coding-orchestrator/references/tests -p 'test_*.py'
 bash -n skills/long-running-project-harness/references/scripts/harnessctl
 ```
 
@@ -116,5 +119,6 @@ CI 位于 `.github/workflows/test.yml`：Linux 3.12 / 3.13 / 3.14 矩阵 + Windo
 - [README](README.md)：定位、最小组合、安装与验证
 - [long-running-project-harness](skills/long-running-project-harness/SKILL.md)
 - [invoke-coding-agents](skills/invoke-coding-agents/SKILL.md)
+- [coding-orchestrator](skills/coding-orchestrator/SKILL.md)
 - [git-workspace-governance](skills/git-workspace-governance/SKILL.md) 与
   [只读体检契约](skills/git-workspace-governance/references/health-check.md)

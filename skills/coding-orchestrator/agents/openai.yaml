@@ -1,0 +1,4 @@
+interface:
+  display_name: "工程方法编排"
+  short_description: "按任务选择工程方法、接入个人规范并处理实际冲突，保持按需加载与独立可用"
+  default_prompt: "使用 $coding-orchestrator 按当前任务和项目规范选择必要的工程方法，处理实际冲突，只加载需要的内容。"

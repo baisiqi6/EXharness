@@ -20,6 +20,8 @@ jobs:
         run: python -m unittest discover -s skills/long-running-project-harness/references/tests -p 'test_*.py'
       - name: Run git workspace governance tests
         run: python -m unittest discover -s skills/git-workspace-governance/references/scripts/tests -p 'test_*.py'
+      - name: Verify independent coding orchestrator packaging
+        run: python -m unittest discover -s skills/coding-orchestrator/references/tests -p 'test_*.py'
       - name: Check shell entrypoint
         run: bash -n skills/long-running-project-harness/references/scripts/harnessctl
 
@@ -40,3 +42,5 @@ jobs:
           test_runtime_scripts.HarnessRuntimeTests.test_relative_windows_plan_parent_traversal_is_rejected
       - name: Run git workspace governance tests on Windows
         run: python -m unittest discover -s skills/git-workspace-governance/references/scripts/tests -p "test_*.py"
+      - name: Verify independent coding orchestrator packaging on Windows
+        run: python -m unittest discover -s skills/coding-orchestrator/references/tests -p "test_*.py"

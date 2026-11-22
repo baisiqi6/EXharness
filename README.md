@@ -1,6 +1,6 @@
 # EXharness
 
-一组面向长期工程项目和多 agent 协作的 agent skill。本仓库是一个 skill 集合（monorepo），包含三个互相独立、各有所长的 skill。
+一组面向长期工程项目和多 agent 协作的 agent skill。本仓库是一个 skill 集合（monorepo），包含四个互相独立、各有所长的 skill。
 
 > **在本仓库工作的 agent 先读 [`AGENTS.md`](AGENTS.md)**：仓库级准则、工作区治理入口、写 skill 的硬性约定、测试与发布流程。修改该文件需要人类授权。
 
@@ -35,7 +35,7 @@
 
 这个 skill 借鉴的是"持久化文件、checklist、progress log、git checkpoint、deterministic session init"这类通用 harness 方法，而不是任何外部框架的代码、prompt、文件结构或命名约定。
 
-它是**协议优先**：先保证文件语义正确，再用薄脚本减少机械工作。它不是自动代理框架，不替你做产品决策；真正的自动协调、跨主机运行状态和可靠消息投递放到独立的 runtime 层（见下文「三个 skill 的关系」中列出的 runtime 实现选项）。
+它是**协议优先**：先保证文件语义正确，再用薄脚本减少机械工作。它不是自动代理框架，不替你做产品决策；真正的自动协调、跨主机运行状态和可靠消息投递放到独立的 runtime 层（见下文「四个 skill 的关系」中列出的 runtime 实现选项）。
 
 ### `invoke-coding-agents` — agent 调用与监督方法
 
@@ -66,12 +66,23 @@
 
 本 skill 自包含、可单独安装；对其它 skill 只做“可选集成”提示，不要求、不检查、也不调用它们。
 
-## 三个 skill 的关系
+### `coding-orchestrator` — 工程方法选择与规范协调
+
+需要选择工程方法、接入个人或第三方规范，或处理工作流冲突时使用。明确的小任务直接完成，
+只加载当前动作需要的规范。通过简短接入说明记录来源、版本、入口和原生产物，支持用户选择
+不同工程方法；不要求安装其它 skill，也不绑定长期项目协议。
+
+Karpathy 指南与设计模式是可选的专项能力。四项版、七项扩展版按来源和版本区分，不强制
+加载或同时安装。第三方入口和验证边界见[来源说明](skills/coding-orchestrator/references/upstream-conventions.md)。
+旧 `programming-principles` 的重复路由由本 skill 统一承接；已有用户按[迁移说明](skills/coding-orchestrator/references/migration.md)核对引用和安装归属后迁移。
+
+## 四个 skill 的关系
 
 它们**互相独立，各满足不同需求**，不是依赖关系：
 
 - `invoke-coding-agents` 满足独立需求："调某个 agent 干件事"——不需要项目 harness 协议。
 - `git-workspace-governance` 维护的是**工作区边界**（谁在哪写、主线怎么改、清理/备份/发布怎么授权），不规定任务协议，也不负责调起 agent。
+- `coding-orchestrator` 维护的是**方法选择与规范协调**，可以单独用于普通工程任务，不要求建立 harness、调用外部 agent 或安装任何特定规范包。
 - `long-running-project-harness` 维护的是**协议**（谁负责什么、任务怎么流转、状态怎么落盘、交接怎么留痕），**不规定 runtime 面怎么推进任务**。推进任务时用哪种 runtime 实现，由用户根据场景自选。
 
 `long-running-project-harness` 常见的 runtime 实现从轻到重：
@@ -93,6 +104,7 @@
 | 需求 | 最小组合 |
 |---|---|
 | 当前 agent 直接开发，只需要持久计划、SDD/TDD、审查和测试纪律 | `long-running-project-harness` |
+| 选择工程方法、按需接入个人规范或处理多个规范的实际冲突 | `coding-orchestrator` |
 | 需要 durable job、任务状态、事件、审查记录和可恢复流程 | EXharness + Coordinate |
 | 需要系统自动调用 agent CLI、恢复 provider session 或跨宿主机执行 | EXharness + Coordinate + MultiNexus `agentd/adapters` |
 | 需要 Discord/KOOK、多 Bot 和多 agent 可见协作 | 三者完整部署 |
@@ -119,9 +131,10 @@ git clone https://github.com/baisiqi6/EXharness.git
 cp -R EXharness/skills/long-running-project-harness ~/.agents/skills/
 cp -R EXharness/skills/invoke-coding-agents        ~/.agents/skills/
 cp -R EXharness/skills/git-workspace-governance    ~/.agents/skills/
+cp -R EXharness/skills/coding-orchestrator        ~/.agents/skills/
 
 # 3. 重启 session,确认 client 能读到对应 skill 的 SKILL.md
-#    三个 skill 均可单独安装；跨 skill 的提及只是可选集成，不构成依赖。
+#    四个 skill 均可单独安装；跨 skill 的提及只是可选集成，不构成依赖。
 ```
 
 安装 `long-running-project-harness` 后，可以直接告诉 agent“使用 EXharness 接续这个任务”。
@@ -129,7 +142,7 @@ cp -R EXharness/skills/git-workspace-governance    ~/.agents/skills/
 
 ### 已有安装的升级与核对
 
-三个 skill **独立安装、独立更新**。新增或更新一个 skill，不代表其它 skill 已更新；管理器显示的
+四个 skill **独立安装、独立更新**。新增或更新一个 skill，不代表其它 skill 已更新；管理器显示的
 “已最新”也只覆盖它确认的单项来源/ref，不代表当前会话已加载新版。
 
 升级前先只读核对客户端实际发现的 `<skill-root>/<skill-name>`，解析符号链接的最终目标，
@@ -259,6 +272,17 @@ python3 skills/git-workspace-governance/references/scripts/check_workspace_state
 ```
 
 测试同时验证：skill 目录被单独复制后所有相对链接仍可解析、脚本可运行、不包含机器特定绝对路径、不引用其它 skill 的路径。
+
+`coding-orchestrator` 的包装测试验证独立复制、入口元数据、内部相对链接与可达参考，不以静态
+检查代替 Agent 行为或第三方工作流的真实兼容验收：
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover \
+  -s skills/coding-orchestrator/references/tests -p 'test_*.py'
+```
+
+Linux Python 3.12–3.14 与 Windows CI 均运行这组检查。新增规范接入时，还需按声明的任务范围
+保存实际行为证据；只核对官方文档的接入说明不能标为工程工作流已验收。
 
 `references/scripts/` 是生成项目实例 runtime 的**模板**（含 `{{占位符}}`），不是安装器。
 

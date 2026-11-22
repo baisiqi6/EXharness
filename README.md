@@ -227,6 +227,18 @@ invoke-coding-agents）就够；只有出现 durable control-plane、托管 exec
 
 ## 验证
 
+### 源码与工程记录一致性
+
+`long-running-project-harness` 提供同一内核的 `drift`、`remind`、`baseline`、`reconcile` 四入口。
+项目在既有 `harness-config.json` 声明源码到正式记录的覆盖关系及累计阈值后，可像 lint 一样在
+提交与 required CI 阻断确定违规；必要输入缺失时报 incomplete。旧 `validate` 保持兼容，
+不会自动为已有项目启用门禁。采用、受信 CI、外置计划和有界写回见
+[一致性检查说明](skills/long-running-project-harness/references/consistency.md)。
+
+新增纯 Python 一致性测试包含 Git index、显式 CI 快照、欠账、基线、对账及交接；Linux 与
+Windows CI 均运行。GitHub required check 的配置由项目维护者显式启用，测试矩阵通过不代表
+业务项目已安装 hook 或完成采用。
+
 `long-running-project-harness` 的运行层测试（只依赖 Python 标准库）：
 
 这些测试也覆盖主 skill 的 EXharness 触发描述、登记计划的读取、旧路径兼容和缺失计划的处理。

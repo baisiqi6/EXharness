@@ -48,8 +48,8 @@ Workflow commands:
                                Renew current owner/session lease
   unblock <item-id> <actor> --decision TEXT [--force --reason TEXT]
                                Move a blocked item back to todo with an auditable decision
-  handoff <item-id> <target> [--actor operator] [--reason TEXT]
-                               Generate current/handoff-packet.md and event
+  handoff <item-id> <target> [--actor operator] [--reason TEXT] [--refresh]
+                               Generate bound task packet; --refresh does not replay assignment
   review-result <item-id> <reviewer> <approved|changes_requested|blocked>
                  --reviewed-packet-sha256 <64-hex> [--summary TEXT]
                                Record reviewer decision bound to the exact packet bytes read
@@ -71,6 +71,17 @@ Packet and state commands:
                                or mvp-checklist.json); explicit path validates that file
   doctor                       Health check for harness files (authority, locators, stale current)
 
+Consistency commands (explicit adoption; Python standard library):
+  drift [--snapshot worktree|staged|ci] [--format text|json]
+                               Diagnose coverage, source review debt and record bindings
+  remind [--snapshot staged|ci] [--format text|json]
+                               Run the same checks as a commit/CI gate (0/1/2)
+  baseline --base REF --fingerprint ID --output PATH
+                               Write explicitly selected, reproducible old findings
+  reconcile --item ID [--output PATH]
+                               Draft task reconciliation; explicit guarded apply only
+  consistency-contract         Read implementation/config/hook/CI capability separately
+
 Options:
   -h, --help                   Show this help
 USAGE
@@ -79,6 +90,14 @@ USAGE
 cmd="${1:-}"
 
 case "${cmd}" in
+    drift|remind|baseline|reconcile)
+        shift
+        python3 "$SCRIPT_DIR/consistency_cli.py" "$cmd" "$@"
+        ;;
+    consistency-contract)
+        shift
+        python3 "$SCRIPT_DIR/consistency_cli.py" contract "$@"
+        ;;
     workflow-contract)
         printf '%s\n' '{"version":1,"reviewed_packet_sha256":true,"self_test_evidence":true}'
         ;;

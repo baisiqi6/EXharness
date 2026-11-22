@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 
 from harness_common import (
     append_event,
     harness_root,
     load_checklist,
     mutate_checklist,
+    project_root,
+    render_plan_snapshot,
     read_text,
     rel,
     release_lease,
@@ -28,19 +32,47 @@ def main() -> int:
     parser.add_argument("--actor", default="operator", help="Actor requesting the handoff")
     parser.add_argument("--reason", default="", help="Why the handoff is needed")
     parser.add_argument("--date", default=None, help="Machine timestamp override (default: current UTC ISO-8601)")
+    parser.add_argument("--refresh", action="store_true", help="Refresh an existing pending handoff without replaying assignment or lease release")
     args = parser.parse_args()
 
     root = harness_root()
     checklist = load_checklist()
     item = require_item(checklist, args.item)
+    original_item = json.dumps(item, sort_keys=True)
     workflow = ensure_workflow(item)
     previous_owner = item.get("owner")
     previous_session = item.get("selected_in_session")
 
+    from consistency_handoff import (
+        enabled, packet_path as task_packet_path, render_binding, parse_binding, write_bound_packet,
+    )
+    strict = enabled()
+    if args.refresh and not strict:
+        raise SystemExit("--refresh requires an adopted consistency contract")
+    if args.refresh and (workflow.get("status") != "handoff_requested" or
+                         workflow.get("handoff_target") != args.target):
+        raise SystemExit("refresh requires this same pending item and target")
+
     plan_path = resolve_item_plan(item, require_exists=True)
     progress_path = root / "progress.md"
     blocker_path = root / "current" / "blocker.md"
-    packet_path = root / "current" / "handoff-packet.md"
+    packet_path = task_packet_path(item) if strict else root / "current" / "handoff-packet.md"
+    previous = None
+    if args.refresh:
+        raw = item.get("artifacts", {}).get("handoff_packet")
+        if raw:
+            old = Path(raw)
+            old = old if old.is_absolute() else project_root() / old
+            try:
+                previous = parse_binding(old.read_bytes())
+            except OSError:
+                raise SystemExit("existing handoff unreadable; inspect before migrating")
+            except ValueError:
+                # An explicit refresh can adopt a legacy packet. Malformed
+                # new bindings cannot be silently treated as legacy.
+                if old.read_bytes().startswith(b"<!-- exharness-handoff "):
+                    raise SystemExit("existing handoff binding malformed; inspect before migrating")
+    binding = render_binding(item, args.target, previous=previous) if strict else ""
 
     body = f"""# Handoff Packet
 
@@ -73,9 +105,7 @@ def main() -> int:
 
 ## Canonical Plan Content
 
-```md
-{read_text(plan_path).rstrip()}
-```
+{render_plan_snapshot(read_text(plan_path))}
 
 ## Recent Progress
 
@@ -95,13 +125,20 @@ def main() -> int:
 - If accepted, target agent should run `{{SCRIPTS_DIR}}/harnessctl accept {args.item} {args.target} <session-id>`.
 """
 
-    write_text(packet_path, body + "\n")
+    if strict:
+        write_bound_packet(item, checklist, packet_path, binding + body + "\n")
+    else:
+        write_text(packet_path, body + "\n")
 
     def callback(candidate: dict) -> None:
         item = require_item(candidate, args.item)
+        if json.dumps(item, sort_keys=True) != original_item:
+            raise SystemExit("task changed during handoff generation; retry from current task")
         workflow = ensure_workflow(item)
         artifacts = ensure_artifacts(item)
         artifacts["handoff_packet"] = rel(packet_path)
+        if args.refresh:
+            return
         workflow["status"] = "handoff_requested"
         workflow["handoff_from"] = previous_owner
         workflow["handoff_target"] = args.target
@@ -113,6 +150,10 @@ def main() -> int:
         item["updated_at"] = iso_z()
 
     mutate_checklist(callback)
+
+    if args.refresh:
+        print(f"Refreshed handoff packet: {packet_path}")
+        return 0
 
     append_event(
         "ASSIGN",

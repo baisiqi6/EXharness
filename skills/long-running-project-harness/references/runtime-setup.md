@@ -76,6 +76,11 @@ session-init 还会做一次只读的 `git worktree list --porcelain -z` 发现�
 
 核心占位符：`{{HARNESS_ROOT}}`、`{{PROJECT_ROOT_DEPTH}}`、`{{SCRIPTS_DIR}}`、`{{PROJECT_NAME}}`。
 
+源码与正式记录一致性检查是同一 runtime 的可选能力，见 [consistency](consistency.md)。
+四个入口共用 `consistency_cli.py`、`consistency_core.py`、`consistency_snapshot.py`；
+`consistency_handoff.py` 接入现有交接生命周期。实例化或升级时将这些文件与原 runtime 一起核对，
+不要只复制新 `harnessctl`。旧项目不会因 skill 升级自动安装 hook 或启用 coverage。
+
 实例化步骤：确定 harness root 位置；确定脚本放置深度；复制模板文件；替换占位符；复制 `harness-config-template.json` 并填入项目实际值；运行 `validate_checklist.py` 确认 harness 健康。
 
 可用模板：`harnessctl`、`harness_common.py`、`build_harness_state.py`、`session_init.py`、`activate_item.py`、`workflow_transition.py`、`sync_current_from_item.py`、`checklist_items.py`、`prepare_handoff_packet.py`、`prepare_review_packet.py`、`prepare_blocker_packet.py`、`prepare_closeout_packet.py`、`validate_checklist.py`。

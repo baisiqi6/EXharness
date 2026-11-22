@@ -54,6 +54,7 @@ description: Use when the user asks to use EXharness, requests a long-running pr
 | 模式选择、角色/委派、任务开始/恢复/阻塞/收口 | [workflow](references/workflow.md) |
 | 存储布局、canonical plan locator、跨 session 恢复与归档 | [storage-and-recovery](references/storage-and-recovery.md) |
 | 初始化或维护可选 runtime、session-init、脚本实例化 | [runtime-setup](references/runtime-setup.md) |
+| 源码与正式记录漂移、提交/CI 门禁、旧项基线与对账 | [consistency](references/consistency.md)；项目明确采用后启用 |
 | 登记 checklist、改 mode、理解校验/兼容行为 | [checklist-contract](references/checklist-contract.md) |
 | 生成或审查 packet、写 verdict、关闭 runtime item | [events-and-packets](references/events-and-packets.md) |
 | 产品方向、部署边界或新风险类别变化 | [scope-review](references/scope-review.md) |

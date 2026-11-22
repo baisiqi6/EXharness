@@ -10,10 +10,12 @@
 
 社区里 "harness" 一词目前被两种不同的东西共用。主流语境说 "harness"（包括各家自称的 "coding agent harness"）几乎都指前者；**本仓库取后者**。
 
-- **运行时 harness（agent harness）——负责「模型能做什么」。** 它就是通称的 agent 本体：给 bash、edit 等工具，给 MCP、插件等外部接入，生怕模型的手触及不到任何一个地方。沙箱与权限围栏同样服务于这个「全面」前提——兜住安全，不改变方向。Claude Code、Codex、ZCode、DeepSeek Harness 等均属此层。
+- **运行时 harness（agent harness）——负责「模型能做什么」。** 它就是通称的 agent 本体：给 bash、edit 等工具，让模型拥有几乎无所不能的原生执行能力；再给 MCP、插件等外部接入，生怕模型的手触及不到任何一个地方。沙箱等安全围栏也会配备，但同样服务于这个「全面」前提。Claude Code、Codex、ZCode、DeepSeek Harness 等均属此层。
 - **治理 harness（protocol harness）——负责「该怎么做」。** 包裹运行时的约束系统：校验、门禁、账本、不变量、fail-closed。它不扩大模型的能力，只判定行为的合法与完备。本仓库（EXharness）、ProjectWiki 的 checker、CI ruleset 等属此层。
 
 判别一个组件在哪层：它给模型新能力，还是给行为设关卡？模型在它里面跑，还是 agent 在它下面被审？两层可以嵌套组合——治理 harness 可以同时骑在多个运行时 harness 之上（本仓库的校验器即同时服务 standalone 与 Coordinate-managed 两种运行时；T3 Code 的口号 "a harness for your AI harnesses" 说的正是这种嵌套）。
+
+**与沙箱层的边界**：沙箱治理与逃逸对抗是另一个深刻且持久的问题域，管的是「模型被物理关在哪里、关不关得住」。治理 harness 不涉及也不与之耦合——即使没有任何沙箱，校验、门禁与账本依然成立；沙箱的存在与否，也不改变治理层对「该怎么做」的判定。
 
 ## 包含的 skill
 

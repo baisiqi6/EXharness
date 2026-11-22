@@ -6,11 +6,17 @@ on:
 
 jobs:
   harness-runtime:
-    runs-on: ubuntu-latest
+    name: harness-runtime (${{ matrix.label || matrix.python-version }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.12", "3.13", "3.14"]
+        include:
+          - os: macos-latest
+            python-version: "3.14"
+            label: "macOS, 3.14"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

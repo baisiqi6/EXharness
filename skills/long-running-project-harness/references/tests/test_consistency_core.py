@@ -388,6 +388,7 @@ class ConsistencyCoreTests(unittest.TestCase):
                 'artifacts': {'handoff_packet': packet}}
         binding = {'version': 1, 'item': 'task-one', 'target': 'next', 'plan': 'docs/module.md',
             'plan_sha256': hashlib.sha256((self.root / 'docs/module.md').read_bytes()).hexdigest(),
+            'plan_object': repo.worktree().entries['docs/module.md'].oid,
             'sources': [{'group': 'module', 'scope_digest': scope_digest(group, cov),
                          'source_digest': repo.worktree().digest(group['sources'], source_excludes(group, cov, 'docs/module.md'))}]}
         self.write('docs/project-harness/harness-checklist.json', json.dumps({'items': [item]}))

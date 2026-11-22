@@ -369,7 +369,9 @@ class SnapshotTests(unittest.TestCase):
         frozen = self.repo.snapshot(self.base)
         oid = frozen.entries["src/app.py"].oid
         gitdir = Path(self.git("rev-parse", "--absolute-git-dir"))
-        (gitdir / "objects" / oid[:2] / oid[2:]).unlink()
+        missing = gitdir / "objects" / oid[:2] / oid[2:]
+        missing.chmod(0o600)  # Git objects carry the read-only attribute on Windows.
+        missing.unlink()
         self.assertEqual(frozen.read("src/app.py"), b"original\n")
         with self.assertRaises(snapshots.SnapshotError):
             snapshots.GitRepo(self.root).snapshot(self.base)
@@ -392,7 +394,9 @@ class SnapshotTests(unittest.TestCase):
         self.write("src/app.py", b"third\n")
         latest = self.commit()
         gitdir = Path(self.git("rev-parse", "--absolute-git-dir"))
-        (gitdir / "objects" / self.base[:2] / self.base[2:]).unlink()
+        missing = gitdir / "objects" / self.base[:2] / self.base[2:]
+        missing.chmod(0o600)
+        missing.unlink()
         self.assertEqual(self.repo.snapshot(tip).read("src/app.py"), b"second\n")
         self.assertEqual(self.repo.first_parent(tip, tip), [])
         self.assertEqual(self.repo.first_parent(tip, latest), [latest])

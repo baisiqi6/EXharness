@@ -53,7 +53,7 @@ Coordinate 权威状态核验，不维护第二份运行账本。
 推荐 source of truth 划分：
 
 - `harness-checklist.json`（新默认；legacy 名 `mvp-checklist.json` 兼容）: coarse status、priority、owner、lease、workflow、acceptance、verification、artifact path、review decision。
-- `tasks/<item-id>/plan.md`: 单个 item 的 canonical plan。
+- `tasks/<item-id>/plan.md`: 默认布局中单个 item 的 canonical plan。
 - `progress.md`: 人类可读进展、验证摘要、风险、handoff。
 - `events.jsonl`: Standalone 的关键动作日志；Coordinate-managed 中只作 fallback/export。
 - `harness-state.json`: 从上述文件派生的机器可读镜像，不手写维护。
@@ -63,6 +63,14 @@ state 的 `source.checklist_path` / `checklist_sha256` 只证明实际读取的 
 assignment/event/反馈的证明。恢复时结合 `execution` 的当前租约状态、历史执行人来源，
 以及 `coordination` 的解除阻塞人读取；未知责任 Operator 应回到已有 canonical plan/packet
 核对，不增加另一份责任账本。
+
+### 从任务节点接续
+
+先读项目协作约定，再从任务节点找到登记的计划和工件位置。已有任务沿用原 locator，即使它指向旧目录。若正文找不到或两个 locator 冲突，沿原任务索引和交接记录核对；确认前暂停写计划。新任务需要持久计划时，先按本项目的布局选定位置。
+
+需要拆步骤、做设计或评审时，先用项目自己的规范、工具及本 skill 的模板完成工作；已安装的外部工程方法也可提供模板和步骤，写入和恢复沿用本项目的记录位置。步骤和下一步直接写入同一份计划。设计决定、验证结果、审查和交接沿用项目选定的文件，由节点或计划链接到已有材料，使接手者从节点就能查到已完成什么、依据在哪里、接下来做什么。
+
+轻量任务沿用项目的轻量流程。是否建档取决于任务的协作和恢复需要，与工具调用次数无关。
 
 ### Storage layout
 
@@ -157,7 +165,7 @@ tasks/
     plan.md
 ```
 
-- `tasks/<item-id>/plan.md`: 任务计划的规范正文落点和历史快照。
+- `tasks/<item-id>/plan.md`: 默认布局中的任务计划正文。
 - `current/task_plan.md`: 当前激活任务计划的指针或摘要，不再作为唯一正文文件。
 - `current/handoff-packet.md`: 转交给另一个 agent 的最小上下文。
 - `current/blocker.md`: 当前卡住的问题、已尝试方案和暂停理由。
@@ -167,8 +175,7 @@ tasks/
   fallback/export。
 
 active canonical plan 的写位置按部署形态区分：
-- **Standalone**：把每个 item 的计划正文写进选定的 `<artifact-root>/tasks/<item-id>/plan.md`
-  （co-located 或独立私有 repo 均可），一个 item 只选一个 artifact root。
+- **Standalone**：无 locator 时，`start` 使用 `<harness-root>/tasks/<item-id>/plan.md`。选用外部工件库时，先在选定位置创建正文，再用 `--plan` 登记该文件。
 - **Coordinate-managed**：active plan 正文留在产品 workspace 内（split-operation `plan_doc` 要求
   workspace-relative）；`<artifact-root>/tasks/<item-id>/` 只放该 task 的过程材料，不放 active plan 正文。
 `<artifact-root>/current/task_plan.md` 只负责告诉下一个 session“现在正在执行哪一个计划文件”，是指针/恢复缓存。

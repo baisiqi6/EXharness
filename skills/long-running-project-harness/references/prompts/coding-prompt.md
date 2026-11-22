@@ -100,11 +100,7 @@ closeout、mark-done 等），不要继续执行下方写层中直接调用 `har
 
 ### Step 6：读当前 canonical plan
 
-如果 harness-state.json 的 `current_item` 存在且 status 为 `doing`：
-
-```bash
-cat {{HARNESS_ROOT}}/tasks/<item-id>/plan.md
-```
+如果已有 `doing` item，Standalone 读取该项解析出的 `current_item.plan_path`；Coordinate-managed 从当前 assignment/bootstrap 核对 workspace 内登记的 `plan_doc`。按[从任务节点接续](../storage-and-recovery.md#从任务节点接续)找到相关证据和交接。
 
 理解当前 plan 的 Goal、In Scope、Steps、Exit Criteria。
 如果 plan 有"待补充"之类的占位符，**先补全 plan 再开始实现**。
@@ -143,7 +139,7 @@ Standalone runtime；Coordinate-managed 使用当前 bootstrap 指定的对应�
 {{SCRIPTS_DIR}}/harnessctl start <item-id> <owner> <session-id>
 ```
 
-这会同步更新当前 checklist、创建 `tasks/<item-id>/plan.md`、刷新 `current/task_plan.md`、写入 `events.jsonl`，并领取当前 session 的 lease。
+`start` 沿用已登记的计划，仅在没有 locator 时使用默认的 `tasks/<item-id>/plan.md`。成功后更新 checklist 和当前指针，记录事件并领取 lease。
 
 如果项目有协调 agent，coding agent 优先 accept/decline 已分配任务；只有在没有协调 agent 或明确 legacy 单 agent 模式时，才自行触发 start。
 
@@ -151,7 +147,7 @@ Standalone runtime；Coordinate-managed 使用当前 bootstrap 指定的对应�
 
 ### Step 8：确认 canonical plan 可执行
 
-读取 `{{HARNESS_ROOT}}/tasks/<item-id>/plan.md`。
+按刚选中的 item ID 核对计划位置。Standalone 可读取本次 `start` 输出的 `Canonical plan` 或最新 checklist 登记的计划。Coordinate-managed 使用本次 assignment 对应的 `plan_doc`。
 
 如果 plan 刚被 `harnessctl start` 创建为骨架模板（包含"待补充"占位符）：
 - **不要跳过占位符直接开始编码**

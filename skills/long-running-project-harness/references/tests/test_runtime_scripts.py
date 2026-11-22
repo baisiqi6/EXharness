@@ -1606,6 +1606,16 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertFalse((self.harness / "mvp-checklist.json").exists())
         self.assertEqual((self.harness / "harness-checklist.json").read_bytes(), old_bytes)
 
+    def test_main_skill_description_recognizes_exharness(self) -> None:
+        text = (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8")
+        metadata = text.split("---", 2)[1].splitlines()
+        name = next(line.removeprefix("name: ") for line in metadata if line.startswith("name: "))
+        description = next(line.removeprefix("description: ") for line in metadata if line.startswith("description: "))
+        self.assertEqual(name, "long-running-project-harness")
+        self.assertTrue(description.startswith("Use when "))
+        self.assertIn("EXharness", description)
+        self.assertLessEqual(len(description), 500)
+
     def test_templates_default_to_harness_checklist(self) -> None:
         """New-project docs default to harness-checklist.json; the legacy name
         only appears as a compatibility note."""

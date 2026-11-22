@@ -53,6 +53,7 @@ description: Use when the user asks to use EXharness, requests a long-running pr
 | GitHub 多维护者/多宿主机开工、查重、认领、PR 交付 | [GitHub 协作](subskills/github-collaboration/SKILL.md) |
 | 模式选择、角色/委派、任务开始/恢复/阻塞/收口 | [workflow](references/workflow.md) |
 | 存储布局、canonical plan locator、跨 session 恢复与归档 | [storage-and-recovery](references/storage-and-recovery.md) |
+| 工程方法未定、缺少所选专项 skill，或方法流程与项目约定冲突 | [按需工程方法](references/engineering-methods.md)；做法与验证已清楚的小任务直接继续 |
 | 初始化或维护可选 runtime、session-init、脚本实例化 | [runtime-setup](references/runtime-setup.md) |
 | 登记 checklist、改 mode、理解校验/兼容行为 | [checklist-contract](references/checklist-contract.md) |
 | 生成或审查 packet、写 verdict、关闭 runtime item | [events-and-packets](references/events-and-packets.md) |

@@ -5,6 +5,7 @@ import errno
 import hashlib
 import importlib.util
 import json
+import re
 import shutil
 import stat
 import subprocess
@@ -1615,6 +1616,30 @@ class HarnessRuntimeTests(unittest.TestCase):
         self.assertTrue(description.startswith("Use when "))
         self.assertIn("EXharness", description)
         self.assertLessEqual(len(description), 500)
+
+    def test_engineering_methods_are_reachable_in_standalone_skill_copy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            copied = Path(directory) / SKILL_DIR.name
+            shutil.copytree(SKILL_DIR, copied)
+            entry = copied / "SKILL.md"
+            reference = copied / "references" / "engineering-methods.md"
+            links = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
+            entry_targets = {
+                target.split("#", 1)[0]
+                for target in links.findall(entry.read_text(encoding="utf-8"))
+            }
+            self.assertIn("references/engineering-methods.md", entry_targets)
+            self.assertTrue(reference.is_file())
+            for document in (entry, reference):
+                for raw_target in links.findall(document.read_text(encoding="utf-8")):
+                    target = raw_target.split("#", 1)[0]
+                    if not target or target.startswith(("https://", "http://", "mailto:")):
+                        continue
+                    resolved = (document.parent / target).resolve()
+                    with self.subTest(document=document.name, target=target):
+                        self.assertFalse(Path(target).is_absolute())
+                        self.assertTrue(resolved.is_relative_to(copied.resolve()))
+                        self.assertTrue(resolved.is_file())
 
     def test_templates_default_to_harness_checklist(self) -> None:
         """New-project docs default to harness-checklist.json; the legacy name

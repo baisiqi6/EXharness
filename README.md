@@ -6,6 +6,15 @@
 
 长期项目最常见的失败不是写不出代码，而是**方向感丢失**：换一个 session 就忘了上次做到哪、为什么这么决定、还差什么。本仓库的 skill 围绕这个问题——让项目状态落盘、可恢复、可审计，并让多个 agent 能实际协作推进。
 
+## 术语：harness 的两层
+
+社区里 "harness" 一词目前被两种不同的东西共用。主流语境说 "harness"（包括各家自称的 "coding agent harness"）几乎都指前者；**本仓库取后者**。
+
+- **运行时 harness（agent harness）——负责「模型能做什么」。** 它就是通称的 agent 本体：给 bash、edit 等工具，给 MCP、插件等外部接入，生怕模型的手触及不到任何一个地方。沙箱与权限围栏同样服务于这个「全面」前提——兜住安全，不改变方向。Claude Code、Codex、ZCode、DeepSeek Harness 等均属此层。
+- **治理 harness（protocol harness）——负责「该怎么做」。** 包裹运行时的约束系统：校验、门禁、账本、不变量、fail-closed。它不扩大模型的能力，只判定行为的合法与完备。本仓库（EXharness）、ProjectWiki 的 checker、CI ruleset 等属此层。
+
+判别一个组件在哪层：它给模型新能力，还是给行为设关卡？模型在它里面跑，还是 agent 在它下面被审？两层可以嵌套组合——治理 harness 可以同时骑在多个运行时 harness 之上（本仓库的校验器即同时服务 standalone 与 Coordinate-managed 两种运行时；T3 Code 的口号 "a harness for your AI harnesses" 说的正是这种嵌套）。
+
 ## 包含的 skill
 
 ### `long-running-project-harness` — 长期项目协作协议

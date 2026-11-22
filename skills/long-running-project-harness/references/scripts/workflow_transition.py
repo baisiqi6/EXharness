@@ -135,6 +135,10 @@ def do_assign(args: argparse.Namespace) -> int:
 def do_accept(args: argparse.Namespace) -> int:
     def callback(checklist: dict) -> None:
         item = require_item(checklist, args.item)
+        from consistency_handoff import accept_problems
+        problems = accept_problems(item, args.owner)
+        if problems:
+            fail("; ".join(problems) + "; refresh or decline the handoff before accepting")
         assert_claimable(checklist, item, owner=args.owner, force=args.force, reason=args.reason)
 
         workflow = ensure_workflow(item)

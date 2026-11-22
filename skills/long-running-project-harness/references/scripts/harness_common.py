@@ -437,6 +437,48 @@ def atomic_write_bytes(path: Path, data: bytes, *, mode: int | None = None) -> N
                 pass
 
 
+def append_observation_bytes(path: Path, expected: bytes, addition: bytes) -> None:
+    """Append to the exact original file; never replace an editor's newer file.
+
+    The existing task lease and cooperative writer lock still apply. A late
+    noncooperating edit is preserved and reported as a conflict, not rolled
+    back or overwritten to make the operation look successful.
+    """
+    flags = os.O_RDWR | os.O_APPEND | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        info = os.fstat(descriptor)
+        if not stat_module.S_ISREG(info.st_mode) or path.is_symlink():
+            raise ValueError("observation target is not a regular original record")
+
+        def content() -> bytes:
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            pieces = []
+            while True:
+                block = os.read(descriptor, 65536)
+                if not block:
+                    return b"".join(pieces)
+                pieces.append(block)
+
+        def same_file() -> bool:
+            current = path.stat()
+            return (current.st_dev, current.st_ino) == (info.st_dev, info.st_ino)
+
+        if content() != expected or not same_file():
+            raise ValueError("original record changed before observation append")
+        remaining = addition
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("incomplete observation append")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+        if not same_file() or content() != expected + addition:
+            raise ValueError("record changed during append; concurrent content preserved, inspect before retry")
+    finally:
+        os.close(descriptor)
+
+
 def atomic_write_json(path: Path, data: Any) -> None:
     """Atomic JSON writer for derived state (not checklist authority)."""
     body = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
@@ -606,16 +648,19 @@ def checklist_runtime_problems(checklist: dict[str, Any]) -> list[str]:
     return problems
 
 
-def _interpret_plan_locator(key: str, raw: str) -> Path:
+def _interpret_plan_locator(key: str, raw: str, *, project: Path | None = None) -> Path:
     path = _plan_locator_path(raw)
     if ".." in path.parts:
         fail(f"{key} locator must not contain '..': {raw!r}")
     if path.is_absolute():
         return path
-    return project_root() / path
+    return (project if project is not None else project_root()) / path
 
 
-def resolve_item_plan(item: dict[str, Any], *, require_exists: bool) -> Path:
+def resolve_item_plan(
+    item: dict[str, Any], *, require_exists: bool,
+    project: Path | None = None, harness: Path | None = None,
+) -> Path:
     """Single semantic answer for an item's canonical plan.
 
     Rules: non-empty plan_path / artifacts.plan are read; fields that exist
@@ -633,7 +678,7 @@ def resolve_item_plan(item: dict[str, Any], *, require_exists: bool) -> Path:
         fail("; ".join(type_problems))
     fields = item_plan_locator_fields(item)
     resolved: list[tuple[str, Path]] = [
-        (key, _interpret_plan_locator(key, raw)) for key, raw in fields
+        (key, _interpret_plan_locator(key, raw, project=project)) for key, raw in fields
     ]
 
     unique: dict[str, tuple[str, Path]] = {}
@@ -653,7 +698,7 @@ def resolve_item_plan(item: dict[str, Any], *, require_exists: bool) -> Path:
         id_problem = safe_item_id_problem(item_id)
         if id_problem:
             fail(f"cannot resolve default plan: {id_problem}")
-        path = harness_root() / "tasks" / str(item_id) / "plan.md"
+        path = (harness if harness is not None else harness_root()) / "tasks" / str(item_id) / "plan.md"
 
     if require_exists and not (path.is_file() and os.access(path, os.R_OK)):
         fail(f"plan file not found or not readable: {path}")

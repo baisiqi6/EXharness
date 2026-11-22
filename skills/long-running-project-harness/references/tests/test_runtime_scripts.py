@@ -152,6 +152,7 @@ class HarnessRuntimeTests(unittest.TestCase):
 
     def load_checklist_items(self):
         """Load the instantiated checklist_items module in-process."""
+        common = self.load_harness_common()
         sys.path.insert(0, str(self.script_dir))
         try:
             spec = importlib.util.spec_from_file_location(
@@ -159,7 +160,11 @@ class HarnessRuntimeTests(unittest.TestCase):
             )
             module = importlib.util.module_from_spec(spec)
             sys.modules[spec.name] = module
-            spec.loader.exec_module(module)
+            # Other suites can import the undistributed source template.
+            # Bind this fixture's rendered runtime explicitly, never a cached
+            # module belonging to another project or temporary worktree.
+            with mock.patch.dict(sys.modules, {"harness_common": common}):
+                spec.loader.exec_module(module)
             return module
         finally:
             sys.path.remove(str(self.script_dir))

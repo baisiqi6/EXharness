@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - name: Verify native Windows artifact bytes and locators
+      - name: Verify native Windows artifacts, locators and skill packaging
         working-directory: skills/long-running-project-harness/references/tests
         run: >-
           python -m unittest
@@ -38,5 +38,6 @@ jobs:
           test_runtime_scripts.HarnessRuntimeTests.test_write_text_preserves_utf8_artifact_bytes
           test_runtime_scripts.HarnessRuntimeTests.test_legacy_relative_windows_plan_locators_remain_readable
           test_runtime_scripts.HarnessRuntimeTests.test_relative_windows_plan_parent_traversal_is_rejected
+          test_runtime_scripts.HarnessRuntimeTests.test_engineering_methods_are_reachable_in_standalone_skill_copy
       - name: Run git workspace governance tests on Windows
         run: python -m unittest discover -s skills/git-workspace-governance/references/scripts/tests -p "test_*.py"
